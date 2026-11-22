@@ -1,0 +1,19 @@
+{
+  "name": "whats-next",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A personal what-to-watch guide: moods, plain-language search, taste DNA, tracker, profiles, group movie night.",
+  "scripts": {
+    "dev": "vite --port 8765 --open",
+    "build": "vite build",
+    "preview": "vite preview --port 8765",
+    "test": "vitest run",
+    "deploy": "node scripts/deploy.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}

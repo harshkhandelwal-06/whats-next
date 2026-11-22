@@ -1,0 +1,29 @@
+/* reset + shared keyframes. Everything visual lives in theme.css and the files after it. */
+*{box-sizing:border-box;margin:0}
+html{color-scheme:dark}
+a{color:inherit;text-decoration:none}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+.rip{display:none}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+@keyframes cardIn{from{opacity:0}to{opacity:1}}
+@keyframes shim{from{background-position:150% 0}to{background-position:-50% 0}}
+@keyframes s{to{transform:rotate(360deg)}}
+@keyframes boxIn{from{opacity:0;transform:translateY(14px) scale(.98)}}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,16px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes flip{from{transform:translateY(-10px);opacity:.4}}
+@keyframes ringIn{from{stroke-dashoffset:119.4}}
+@keyframes tp{0%,60%,100%{transform:none;opacity:.4}30%{transform:translateY(-5px);opacity:1}}
+@keyframes radIn{from{transform:scale(0);opacity:0}}
+@keyframes grow{from{width:0}}
+@keyframes up{from{transform:scaleY(0)}}
+@keyframes dealIn{from{opacity:0;transform:translateY(16px) scale(.97)}}
+@keyframes pkIn{from{opacity:0}}
+@keyframes letUp{to{transform:none}}
+@keyframes lineW{to{width:min(320px,50vw)}}
+@keyframes wlUp{from{opacity:0;transform:translateY(12px)}}
+@keyframes fill{to{width:100%}}
+@keyframes vtIn{from{opacity:0}}@keyframes vtOut{to{opacity:0}}
+
