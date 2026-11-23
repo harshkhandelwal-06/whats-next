@@ -14,7 +14,7 @@ export const hasServer = () => !!server();
 export function setServer(url, key) {
   url = String(url || '').trim().replace(/\/+$/, ''); key = String(key || '').trim();
   if (!/^https:\/\/[\w-]+\.supabase\.(co|in)$/.test(url) && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(url)) throw new Error('That does not look like a Supabase project URL. It looks like https://abcd1234.supabase.co');
-  if (key.length < 30) throw new Error('That does not look like the anon public key. It is a long text that starts with eyJ or sb_publishable_.');
+  if (key.length < 30) throw new Error('That does not look like the anon public key. It is a long text that starts with sb_publishable_ (or eyJ for older projects).');
   write(SK, { url, key });
 }
 export const clearServer = () => write(SK, null);
@@ -32,7 +32,7 @@ const nice = (r, d) => {
 };
 async function call(path, { method = 'GET', body, token, headers = {} } = {}) {
   const s = server(); if (!s) throw new Error('This app is not connected to a server yet.');
-  let r; try { r = await fetch(s.url + path, { method, headers: { apikey: s.key, Authorization: 'Bearer ' + (token || s.key), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: body !== undefined ? JSON.stringify(body) : undefined }); }
+  let r; try { r = await fetch(s.url + path, { method, headers: { apikey: s.key, ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: body !== undefined ? JSON.stringify(body) : undefined }); }
   catch { throw new Error('Could not reach the server. Check your connection.'); }
   const txt = await r.text(); let d = null; try { d = txt ? JSON.parse(txt) : null; } catch {}
   if (!r.ok) { const e = new Error(nice(r, d)); e.status = r.status; e.code = d?.code || d?.error_code || ''; throw e; }

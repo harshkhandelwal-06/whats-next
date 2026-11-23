@@ -23,12 +23,14 @@ It creates a public repo, pushes, turns on GitHub Pages and prints your URL: `ht
 Open that URL on your phone and choose "Add to Home Screen".
 
 ## Accounts and sync (Supabase, free)
+Sign-in is an **email and password**. This copy is already pointed at its own Supabase project (URL and publishable key in `src/core/config.js`); to run your own, follow the steps below and replace them.
+
 Sign-in is an **email and password**; each account's lists and profiles are saved to a free Supabase project so they follow you to any device. One-time setup (about 5 minutes):
 1. Create a free project at supabase.com.
 2. **SQL Editor** → paste all of `supabase/setup.sql` → Run. This creates the two tables and the rules that keep every account's data private.
 3. **Authentication → Providers → Email**: leave it on. To skip confirmation emails (simplest for a few people), turn **Confirm email** off.
 4. **Authentication → URL Configuration**: set **Site URL** to your site address (for example `https://<you>.github.io/whats-next/`). This is where password-reset links send people.
-5. **Project Settings → API**: copy the **Project URL** and the **anon public** key. Put them in `src/core/config.js` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), or as GitHub repository variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, or type them once on the sign-in screen. Both are safe to publish: the rules in `setup.sql` mean the key can only reach each signed-in person's own rows.
+5. **Project Settings → API Keys**: copy the **Project URL** and the **Publishable key** (`sb_publishable_…`). Put them in `src/core/config.js` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), or as GitHub repository variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, or type them once on the sign-in screen. Both are safe to publish: the rules in `setup.sql` mean the key can only reach each signed-in person's own rows.
 Free-plan limits are far above a handful of users. A project that nobody opens for a week is paused; open the Supabase dashboard to resume it.
 
 **Fingerprint or face unlock (optional).** Settings → Account → *Turn on*. After signing out, one touch brings you back in, and any profile can be locked with it too. It is a convenience lock on that device; your password remains the real key, and it only appears on devices that support it.

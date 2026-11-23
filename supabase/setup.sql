@@ -16,6 +16,10 @@ create policy "own data insert" on public.wn_data for insert to authenticated wi
 create policy "own data update" on public.wn_data for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own data delete" on public.wn_data for delete to authenticated using (auth.uid() = user_id);
 
+-- Some projects don't expose new tables to the API by default, so say it explicitly. (Row rules below still decide who can see which row.)
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.wn_data to authenticated;
+
 -- Movie night share codes: a small copy of someone's watched/saved titles, under a random code.
 create table if not exists public.wn_shares (
   code text primary key,
@@ -32,6 +36,8 @@ create policy "own shares read"   on public.wn_shares for select to authenticate
 create policy "own shares insert" on public.wn_shares for insert to authenticated with check (auth.uid() = owner);
 create policy "own shares update" on public.wn_shares for update to authenticated using (auth.uid() = owner) with check (auth.uid() = owner);
 create policy "own shares delete" on public.wn_shares for delete to authenticated using (auth.uid() = owner);
+
+grant select, insert, update, delete on public.wn_shares to authenticated;
 
 -- Friends read a share only by knowing its exact code (nobody can list the table).
 create or replace function public.wn_get_share(p_code text) returns jsonb
