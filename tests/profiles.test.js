@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mergeData, mergeProfiles } from '../src/core/merge.js';
 import { isSafeFor } from '../src/core/safety.js';
-import { boot, sleep, state } from './helpers/mocks.js';
+import { boot, resetServer, sleep, state } from './helpers/mocks.js';
 
 describe('merge', () => {
   it('newest wins and deletions beat older entries', () => {
@@ -24,36 +24,33 @@ describe('kids safety', () => {
   });
 });
 describe('profiles in the app', () => {
-  it('signed out: only Google sign-in is offered, no guest and no local profiles', async () => {
-    await boot(null, { signedOut: true });
-    expect(document.querySelector('#welcome')).toBeTruthy(); expect(document.querySelector('#wlG')).toBeTruthy();
-    expect(document.querySelector('[data-guest]')).toBeNull(); expect(document.querySelector('#wlName')).toBeNull(); expect(document.querySelector('#wlLocal')).toBeNull();
+  const fill = (mail, pw, up = false) => { if (up) document.querySelector('[data-tab="up"]').click(); document.querySelector('#wlEmail').value = mail; document.querySelector('#wlPass').value = pw; document.querySelector('#wlForm').dispatchEvent(new Event('submit', { cancelable: true })); };
+  it('signed out: only email sign-in is offered, no guest and no local profiles', async () => {
+    resetServer(); await boot(null, { signedOut: true });
+    expect(document.querySelector('#welcome')).toBeTruthy(); expect(document.querySelector('#wlEmail')).toBeTruthy(); expect(document.querySelector('#wlPass')).toBeTruthy();
+    expect(document.querySelector('#wlG')).toBeNull(); expect(document.querySelector('[data-guest]')).toBeNull(); expect(document.querySelector('#wlLocal')).toBeNull();
     expect(document.querySelector('#view').children.length).toBe(0);
   });
-  it('Google sign-in opens a private space for that account', async () => {
-    state.sub = 'u1';
-    await boot({ 'wn:device': { gClient: 'x.apps.googleusercontent.com' } }, { signedOut: true });
-    document.querySelector('#wlG').click(); await sleep(900);
+  it('signing in opens a private space for that account', async () => {
+    resetServer(); await boot(null, { signedOut: true });
+    fill('t@example.com', 'password1'); await sleep(900);
     expect(JSON.parse(localStorage.getItem('wn:acct')).sub).toBe('u1');
     expect(JSON.parse(localStorage.getItem('wn:u1:meta')).list).toHaveLength(1);
     expect(document.querySelector('#welcome')).toBeNull(); expect(location.hash).toBe('#/foryou');
-    expect(JSON.parse(localStorage.getItem('wn:gtok:u1')).t).toBe('tok'); // survives a refresh, so no reconnect needed within the hour
+    expect(JSON.parse(localStorage.getItem('wn:sess')).rt).toBe('rt-u1');   // survives a refresh, so no sign-in again
   });
-  it("another Google account never sees someone else's profiles or lists", async () => {
-    state.sub = 'u1'; state.driveFile = null;
-    await boot({ 'wn:device': { gClient: 'x.apps.googleusercontent.com' } }, { signedOut: true });
-    document.querySelector('#wlG').click(); await sleep(900);
+  it("another account never sees someone else's profiles or lists", async () => {
+    resetServer(); await boot(null, { signedOut: true });
+    fill('t@example.com', 'password1'); await sleep(900);
     const a = JSON.parse(localStorage.getItem('wn:u1:meta')).list[0].id;
     localStorage.setItem('wn:u1:p:' + a, JSON.stringify({ lib: { 'movie:1': { id: 1, type: 'movie', status: 'watched', ts: 5 } }, del: {}, meta: {}, sum: {}, cfg: {} }));
-    document.querySelector('#who').click(); document.querySelector('#signout').click(); await sleep(100);
-    expect(localStorage.getItem('wn:acct')).toBeNull(); expect(document.querySelector('#welcome')).toBeTruthy();
-    state.sub = 'u2'; state.driveFile = null;
-    document.querySelector('#wlG').click(); await sleep(900);
+    document.querySelector('#who').click(); document.querySelector('#signout').click(); await sleep(300);
+    expect(localStorage.getItem('wn:acct')).toBeNull(); expect(localStorage.getItem('wn:sess')).toBeNull(); expect(document.querySelector('#welcome')).toBeTruthy();
+    fill('other@example.com', 'password2', true); await sleep(900);
     const m2 = JSON.parse(localStorage.getItem('wn:u2:meta')); expect(m2.list).toHaveLength(1); expect(m2.list[0].id).not.toBe(a);
     expect(localStorage.getItem('wn:u2:p:' + a)).toBeNull();
     expect(Object.keys(JSON.parse(localStorage.getItem('wn:u2:p:' + m2.list[0].id)).lib)).toEqual([]);
     expect(localStorage.getItem('wn:u1:p:' + a)).toBeTruthy();
-    state.sub = 'u1';
   });
   it('the profile picker has no guest option, and signing out returns to the welcome page', async () => {
     await boot({ 'wn:meta': { list: [{ id: 'a', name: 'A', emoji: '🎬', color: '', kids: false, pin: '', ts: 1 }, { id: 'b', name: 'B', emoji: '🍿', color: '', kids: false, pin: '', ts: 1 }], del: {}, last: 'a' } });

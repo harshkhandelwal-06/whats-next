@@ -1,61 +1,13 @@
-import { GOOGLE_CLIENT_ID } from './config.js';
 import { toast } from './library.js';
-import { ACTIVE, PROFILES, S, activeData, createProfile, getAccount, leaveProfile, loadProfileData, save, saveMeta, setAccount, writeProfileData } from './state.js';
+import { ACTIVE, PROFILES, S, activeData, createProfile, getAccount, leaveProfile, loadProfileData, save, saveMeta, writeProfileData } from './state.js';
 import { mergeData, mergeProfiles } from './merge.js';
-import { $, esc, key } from './utils.js';
+import { $, esc } from './utils.js';
 import { route } from '../router.js';
 import { openSettings } from '../ui/settings.js';
+import { hasServer, rest, signedIn, token, user } from './supa.js';
 
-export let GTOK = null, GEXP = 0, gTimer = null, rTimer = null, gBusy = false, gLast = 0;
-
-export const gClient = () => GOOGLE_CLIENT_ID || S.cfg.gClient;
-
-export function loadGIS() { return new Promise((res, rej) => { if (window.google?.accounts?.oauth2) return res(); const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = res; s.onerror = () => rej(new Error('Could not load Google sign-in. Check your connection.')); document.head.appendChild(s); }); }
-
-// Google access tokens last about an hour. Keep the current one across refreshes so a reload doesn't ask you to reconnect.
-const tokKey = () => { const a = getAccount(); return a ? 'wn:gtok:' + String(a.sub).replace(/[^\w-]/g, '') : ''; };
-function restoreTok() { try { const k = tokKey(), v = k && JSON.parse(localStorage.getItem(k) || 'null'); if (v && v.t && v.exp > Date.now() + 60000) { GTOK = v.t; GEXP = v.exp; renewLater(); } } catch {} }
-function storeTok() { try { const k = tokKey(); if (k) localStorage.setItem(k, JSON.stringify({ t: GTOK, exp: GEXP })); } catch {} }
-export const hasToken = () => { if (!GTOK) restoreTok(); return !!GTOK && Date.now() < GEXP - 60000; };
-
-export async function gToken(interactive) {
-  if (hasToken()) return GTOK;
-  await loadGIS();
-  return new Promise((res, rej) => {
-    const c = google.accounts.oauth2.initTokenClient({ client_id: gClient(), scope: 'https://www.googleapis.com/auth/drive.appdata openid email profile',
-      callback: r => { if (r.error) return rej(new Error(r.error)); GTOK = r.access_token; GEXP = Date.now() + (r.expires_in || 3600) * 1000; storeTok(); renewLater(); res(GTOK); },
-      error_callback: e => rej(new Error(e?.type || 'popup_closed')) });
-    c.requestAccessToken({ prompt: interactive ? '' : 'none', hint: getAccount()?.email || undefined });
-  });
-}
-
-/** Quietly get a fresh Google token a few minutes before the old one runs out, so you are never asked to reconnect. */
-function renewLater() {
-  clearTimeout(rTimer);
-  if (!getAccount() || !S.cfg.gSync) return;
-  rTimer = setTimeout(() => { if (document.visibilityState === 'visible') { GTOK = null; syncNow(false); } else renewLater(); }, Math.max(20000, GEXP - Date.now() - 5 * 60000));
-}
-
-export const DRV = 'https://www.googleapis.com/drive/v3', UPL = 'https://www.googleapis.com/upload/drive/v3';
-
-export async function gfetch(url, opt = {}) {
-  const t = await gToken(false), r = await fetch(url, { ...opt, headers: { Authorization: 'Bearer ' + t, ...(opt.headers || {}) } });
-  if (r.status === 401) { GTOK = null; throw new Error('auth'); }
-  if (!r.ok) throw new Error('Drive error ' + r.status);
-  return r;
-}
-
-export const driveFind = async () => (await (await gfetch(`${DRV}/files?spaces=appDataFolder&q=${encodeURIComponent("name='watchnext.json'")}&fields=files(id,modifiedTime)&pageSize=1`)).json()).files?.[0] || null;
-
-export const driveRead = async id => (await gfetch(`${DRV}/files/${id}?alt=media`)).json();
-
-export async function driveWrite(id, data) {
-  const body = JSON.stringify(data);
-  if (id) return gfetch(`${UPL}/files/${id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
-  const b = 'wn' + Date.now();
-  const mp = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: 'watchnext.json', parents: ['appDataFolder'] })}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
-  return gfetch(`${UPL}/files?uploadType=multipart`, { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body: mp });
-}
+export { hasServer, signedIn };
+let gTimer = null, gBusy = false, gLast = 0;
 
 export function snapshot() {
   if (getAccount()) save(false);
@@ -92,47 +44,40 @@ export function mergeIn(r) {
 }
 
 export function setSync(state, msg) {
-  const b = $('#sync'); if (!b) return; b.className = 'mi ' + state; const u = S.cfg.gUser;
-  const t = $('#syncTxt'); if (t) t.textContent = { ok: 'On', busy: 'Syncing…', off: !gClient() ? 'Set up' : getAccount() ? 'Reconnect' : 'Sign in', err: 'Problem' }[state];
-  b.title = { ok: 'Synced with Google. Click to sync now.', busy: 'Syncing…', off: !gClient() ? 'Set up Google sync' : 'Google needs you to reconnect. Click to sync now.', err: 'Sync problem: ' + (msg || '') }[state];
+  const b = $('#sync'); if (!b) return; b.className = 'mi ' + state;
+  const t = $('#syncTxt'); if (t) t.textContent = { ok: 'On', busy: 'Syncing…', off: !hasServer() ? 'Set up' : 'Sign in', err: 'Problem' }[state];
+  b.title = { ok: 'Saved to your account. Click to sync now.', busy: 'Syncing…', off: !hasServer() ? 'This app has no server set up yet' : 'Sign in again to sync', err: 'Sync problem: ' + (msg || '') }[state];
   const w = $('#who'); if (w) { w.dataset.sync = state; }
 }
 
+const TABLE = 'wn_data';
+const readRemote = async uid => (await rest(`${TABLE}?select=data&user_id=eq.${encodeURIComponent(uid)}`))?.[0]?.data || null;
+const writeRemote = (uid, data) => rest(`${TABLE}?on_conflict=user_id`, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: { user_id: uid, data, updated_at: new Date().toISOString() } });
+
+/** Merge what is saved in the account with this device, then save the merged result back. Safe to run from any device at any time. */
 export async function syncNow(interactive = false) {
-  if (!gClient()) { if (interactive) openSettings(); return; }
+  if (!hasServer()) { if (interactive) openSettings(); return; }
+  const u = user(), cur = getAccount();
+  if (!u || !cur || !signedIn()) { setSync('off'); return; }
   if (gBusy) return; gBusy = true; setSync('busy');
   try {
-    await gToken(interactive);
-    let u = null; try { u = await (await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + GTOK } })).json(); } catch {}
-    if (!u?.email) throw new Error('Google did not share your email. Sign in again and allow every permission it asks for.');
-    const user = { sub: u.sub || u.email, name: u.name, email: u.email, picture: u.picture }, cur = getAccount();
-    if (!cur) setAccount(user);
-    else if (cur.sub !== user.sub) throw new Error('That is a different Google account from the one signed in here. Sign out first to switch.');
-    else S.cfg.gUser = { name: user.name, email: user.email, picture: user.picture };
-    S.cfg.gSync = true; save(false); storeTok();
-    try {
-      const f = await driveFind(), remote = f ? await driveRead(f.id) : null, changed = mergeIn(remote);
-      save(false); await driveWrite(f?.id, snapshot()); gLast = Date.now(); setSync('ok');
-      if (changed) { toast('Restored from your Google account', 2600); route(true); }
-      else if (interactive) toast('Everything is synced', 1800);
-    } catch (e) {
-      const m = /403/.test(e.message) ? 'Signed in, but Google Drive refused access. Enable the Google Drive API for your project, and tick the Drive permission on the consent screen. Your lists stay on this device until then.' : 'Signed in, but syncing failed: ' + e.message;
-      // a lapsed Google session is not an error: it just needs one click to reconnect
-      if (/^auth$|401/.test(e.message)) { GTOK = null; try { localStorage.removeItem(tokKey()); } catch {} setSync('off'); if (interactive) toast('Google asked you to sign in again. Click sync once more.', 4000); return; }
-      setSync('err', m); if (interactive) toast(esc(m), 7000);
-    }
+    await token();
+    if (cur.sub !== u.id) throw new Error('This device is signed in as someone else. Sign out and sign in again.');
+    S.cfg.gSync = true; save(false);
+    const changed = mergeIn(await readRemote(u.id));
+    save(false); await writeRemote(u.id, snapshot()); gLast = Date.now(); setSync('ok');
+    if (changed) { toast('Loaded your saved lists', 2600); route(true); }
+    else if (interactive) toast('Everything is synced', 1800);
   } catch (e) {
-    // background syncs can't open a Google window, so any failure there just means "reconnect", never "problem"
-    const quiet = !interactive || /auth|popup|interaction|access_denied|immediate|login_required|consent/i.test(e.message);
-    setSync(quiet ? 'off' : 'err', e.message); if (interactive && !quiet) toast('Google sign-in failed: ' + esc(e.message), 6000);
+    if (e.message === 'auth') { setSync('off'); document.dispatchEvent(new CustomEvent('wn:authlost')); }
+    else if (/Could not reach/.test(e.message)) setSync('err', e.message);
+    else { const m = /relation|wn_data|42P01|PGRST205|404/.test(e.message + (e.code || '')) ? 'The database is not set up yet. Run supabase/setup.sql in your Supabase project.' : e.message; setSync('err', m); if (interactive) toast(esc(m), 6000); }
   } finally { gBusy = false; }
 }
 
-export const resumeSync = () => { if (S.cfg.gSync && gClient() && getAccount()) { if (hasToken()) renewLater(); syncNow(false); } };
+export const resumeSync = () => { if (hasServer() && signedIn() && getAccount()) syncNow(false); };
 
-export function scheduleSync() { if (!getAccount() || !S.cfg.gSync || !gClient()) return; clearTimeout(gTimer); gTimer = setTimeout(() => syncNow(false), 2500); }
+export function scheduleSync() { if (!getAccount() || !hasServer() || !signedIn()) return; clearTimeout(gTimer); gTimer = setTimeout(() => syncNow(false), 2500); }
 
-export function gSignOut() { try { if (GTOK) google.accounts.oauth2.revoke(GTOK, () => {}); } catch {} try { const k = tokKey(); if (k) localStorage.removeItem(k); } catch {} GTOK = null; setSync('off'); }
-
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.cfg.gSync && (!hasToken() || Date.now() - gLast > 60000)) syncNow(false); });
-addEventListener('online', () => { if (S.cfg.gSync && !hasToken()) syncNow(false); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && signedIn() && Date.now() - gLast > 60000) syncNow(false); });
+addEventListener('online', () => { if (signedIn()) syncNow(false); });

@@ -36,14 +36,17 @@ export async function ai(system, messages, { tier = 'smart', max = 2048, json = 
   const order = tier === 'fast' ? ['fast', 'smart'] : ['smart', 'fast'];
   const chain = [...new Set([(S.cfg.geminiModel || '').trim(), ...order.flatMap(t => [...(found?.[t] || []).slice(0, 2), ...MODELS[t]])].filter(Boolean))].slice(0, 5);
   const sys = { parts: [{ text: system + (S.cfg.kids ? ' ' + KIDS_PROMPT : '') }] }, contents = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-  let last;
-  for (const model of chain) {
+  let last, busy = false;
+  const busyErr = () => Object.assign(new Error('Gemini is busy right now (high demand). That usually clears within a minute.'), { busy: true });
+  for (let round = 0; round < 2; round++) {
+  if (round) { if (!busy) break; await new Promise(r => setTimeout(r, 1800)); busy = false; }
+  for (const model of chain.slice(0, round ? 3 : 5)) {
     for (const think of [thinkOff(model), null]) {
       const body = JSON.stringify({ systemInstruction: sys, contents, generationConfig: { maxOutputTokens: max, temperature: 0.8, ...(json ? { responseMimeType: 'application/json' } : {}), ...(think ? { thinkingConfig: think } : {}) } });
       const ac = new AbortController(), timer = setTimeout(() => ac.abort(), limit);
       let r;
       try { r = await fetch(`${GEMINI_URL}${model}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: ac.signal }); }
-      catch (e) { clearTimeout(timer); if (e.name === 'AbortError') { last = new Error('The AI took too long to answer. Try again in a moment.'); break; } throw new Error('Could not reach Gemini. Check your internet connection.'); }
+      catch (e) { clearTimeout(timer); if (e.name === 'AbortError') { last = Object.assign(new Error('The AI took too long to answer. Try again in a moment.'), { busy: true }); busy = true; break; } throw new Error('Could not reach Gemini. Check your internet connection.'); }
       clearTimeout(timer);
       if (r.ok) {
         const j = await r.json(), t = (j.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
@@ -53,10 +56,12 @@ export async function ai(system, messages, { tier = 'smart', max = 2048, json = 
       }
       let msg = ''; try { msg = (await r.json()).error?.message || ''; } catch {}
       if ((r.status === 400 && /api key/i.test(msg)) || r.status === 403) throw new Error('Gemini rejected the API key. Check it in Settings.');
+      if ([429, 500, 502, 503, 504].includes(r.status)) { busy = true; last = busyErr(); break; }
       last = new Error('Gemini error ' + r.status + (msg ? ': ' + msg : ''));
       if (r.status === 400 && think && /think/i.test(msg)) continue;   // that model does not take the thinking setting; retry plain
       break;
     }
+  }
   }
   throw last || new Error('The AI request failed.');
 }

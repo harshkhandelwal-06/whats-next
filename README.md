@@ -22,8 +22,16 @@ It creates a public repo, pushes, turns on GitHub Pages and prints your URL: `ht
 
 Open that URL on your phone and choose "Add to Home Screen".
 
-## Google sign-in (sync across devices)
-Create an OAuth Web client in Google Cloud Console, add `https://<you>.github.io` as an authorized JavaScript origin, and enable the Drive API. Paste the client ID in Settings. All profiles sync to a hidden app folder in your own Drive.
+## Accounts and sync (Supabase, free)
+Sign-in is an **email and password**; each account's lists and profiles are saved to a free Supabase project so they follow you to any device. One-time setup (about 5 minutes):
+1. Create a free project at supabase.com.
+2. **SQL Editor** → paste all of `supabase/setup.sql` → Run. This creates the two tables and the rules that keep every account's data private.
+3. **Authentication → Providers → Email**: leave it on. To skip confirmation emails (simplest for a few people), turn **Confirm email** off.
+4. **Authentication → URL Configuration**: set **Site URL** to your site address (for example `https://<you>.github.io/whats-next/`). This is where password-reset links send people.
+5. **Project Settings → API**: copy the **Project URL** and the **anon public** key. Put them in `src/core/config.js` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), or as GitHub repository variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, or type them once on the sign-in screen. Both are safe to publish: the rules in `setup.sql` mean the key can only reach each signed-in person's own rows.
+Free-plan limits are far above a handful of users. A project that nobody opens for a week is paused; open the Supabase dashboard to resume it.
+
+**Fingerprint or face unlock (optional).** Settings → Account → *Turn on*. After signing out, one touch brings you back in, and any profile can be locked with it too. It is a convenience lock on that device; your password remains the real key, and it only appears on devices that support it.
 
 ## Profiles and privacy
 - Each profile has its own library, ratings and accent colour. API keys are shared on the device.
@@ -41,7 +49,7 @@ Eight places in the top menu (on a phone it becomes a scrolling strip under the 
 - **Ask AI**, **Swipe**, **Movie night**.
 - **Library:** Watchlist, Watched, Not seen and Hidden (shows you are tracking sit at the top of the Watchlist under "In progress") with search, filters, sorting and grid or list. On a title page, **Watch in Stremio** opens the Stremio app on that title. For a TV show, tick **+1 episode** on its page to start tracking it automatically.
 
-Everything about you lives under your avatar: switch profile, Google sync, theme, settings, sign out.
+Everything about you lives under your avatar: switch profile, cloud sync, theme, settings, sign out.
 
 **Unreleased titles** are never recommended. They only appear on Browse (when you turn the toggle on), Radar and Coming soon.
 
@@ -58,7 +66,7 @@ It follows your system theme; change it from the avatar menu or press `T`. Each 
 
 ## Signing in
 The first screen offers **Sign in**, **Sign up** and **Continue as guest**.
-- **Google** sign-in or sign-up syncs every profile to a private app folder in your own Google Drive, so nothing is lost and a new device is ready instantly. It needs a one-time free Client ID (the welcome page shows how, and where to paste it).
+- **Email and password** sign-in or sign-up syncs every profile to your account, so nothing is lost and a new device is ready after you sign in.
 - **On this device only:** Sign up lets you create a profile with just a name. It stays in this browser.
 - **Guest** never saves or syncs anything. A guest can turn the session into a profile from the profile button.
 - There is no email-and-password option, because that needs a server to keep passwords safe and this app is deliberately a static site.
@@ -77,8 +85,8 @@ Every request to TMDB now times out after 8 seconds and retries once. If the app
 - The Guest session dialog has more spacing.
 
 ## Accounts and privacy
-- Google sign-in is the only way in. There is no guest mode and no local-only profile.
-- Profiles belong to the Google account that created them. Each account has its own storage space (`wn:<google id>:…`), so a different account on the same browser sees none of it.
+- An email account is the only way in. There is no guest mode and no local-only profile.
+- Profiles belong to the account that created them. Each account has its own storage space (`wn:<account id>:…`), so a different account on the same browser sees none of it.
 - Backups go to the app-only Drive folder of that same account, which only that account can read.
 - Signing out forgets the account on the browser and returns to the sign-in page. Data saved before accounts existed moves into the first account that signs in.
 
@@ -99,7 +107,7 @@ Your default list is called **Next to watch**. In Library → Watchlist, use **�
 ## More recent changes
 - **Rewatch** is its own item in the top menu, next to Library.
 - **Watchlists:** each list is a box with a poster fan, a random-pick button and (for your own lists) an edit button; **Edit lists** manages them all. Movies and shows share a list, with an All / Movies / TV shows toggle inside it.
-- **Google:** the app renews its Google session quietly in the background (a few minutes before expiry, on load, and when you return to the tab).
+- **Sync:** the login renews itself quietly with a refresh token, so you stay signed in.
 - **Home rows** keep loading as you scroll sideways, each has a refresh button, and a title you mark watched leaves the slideshow.
 - **AI:** questions about a specific title get an answer, not a list of similar titles.
 - **Trailer:** Sound, Pause and Theater buttons. Theater opens a big dark player with a time slider.
@@ -108,8 +116,7 @@ Your default list is called **Next to watch**. In Library → Watchlist, use **�
 - Trailers only become visible once they are really playing, so YouTube's play/pause icon doesn't flash on screen.
 
 ## Movie night friends (share codes)
-No requests or accounts to link. In **Movie night → Share your taste** you create a code (`wn-…`). It saves one small public-link file in *your* Google Drive containing only the titles you've watched or saved and your ratings. A friend pastes your code under **＋ Add a friend**, and your taste is used for the picks. **Turn off** deletes the file, so the code stops working for everyone. To use it:
-1. Google Cloud → APIs & Services → **Credentials → Create credentials → API key**. Restrict it to the **Google Drive API** (and, if you like, to your site's address).
-2. Paste that key into **Settings → Account → Google API key**.
-3. The first time you create a code, Google asks for a small permission ("files this app creates").
-Filters in Movie night: type, genres, and **already watched by nobody / by one person / anyone**.
+No requests or accounts to link. In **Movie night → Share your taste** you create a code (`wn-…`). It stores a small copy of the titles you've watched or saved (with your ratings) in your Supabase project. A friend pastes your code under **＋ Add a friend**, and your taste is used for the picks. Friends need an account in the same app. **Turn off** deletes the copy, so the code stops working. Nobody can list codes; only someone who has the exact code can read it. Filters in Movie night: type, genres, and **already watched by nobody / by one person / anyone**.
+
+## When the AI is busy
+If Gemini answers "high demand" the app waits a moment and tries again, and if it is still busy it answers from the movie database instead (titles like the ones you named, ranked by how many of them recommend each), so you never get a bare error.

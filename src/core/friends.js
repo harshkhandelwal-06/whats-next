@@ -1,39 +1,11 @@
-// Movie night friends, by share code. No server, no requests.
-// "Share my taste" saves a small public-link file in YOUR Google Drive (only the titles you watched or saved, with your ratings)
-// and gives you a code. A friend pastes the code into Movie night. Turn the code off and the file is deleted, so it stops working.
-import { GOOGLE_API_KEY } from './config.js';
+// Movie night friends, by share code. No requests to accept.
+// "Share my taste" saves a small copy of your watched and saved titles (with your ratings) under a random code in your account's database.
+// A friend pastes the code into Movie night. Turn the code off and the copy is deleted, so it stops working.
 import { getAccount, S, save } from './state.js';
-import { gClient, loadGIS } from './sync.js';
+import { hasServer, rest, rpc, signedIn, user } from './supa.js';
 
-const SCOPE = 'https://www.googleapis.com/auth/drive.file';   // only files this app creates
-const DRV = 'https://www.googleapis.com/drive/v3', UPL = 'https://www.googleapis.com/upload/drive/v3';
-let FT = null, FEXP = 0;
-
-const sub = () => String(getAccount()?.sub || '').replace(/[^\w-]/g, '');
-const tkey = () => 'wn:ftok:' + sub();
-function restore() { try { const v = JSON.parse(localStorage.getItem(tkey()) || 'null'); if (v?.t && v.exp > Date.now() + 60000) { FT = v.t; FEXP = v.exp; } } catch {} }
-export const hasShareAccess = () => { if (!FT) restore(); return !!FT && Date.now() < FEXP - 60000; };
-export const apiKey = () => GOOGLE_API_KEY || (S.cfg.gApiKey || '').trim();
-
-/** Google token for "files this app creates". `interactive` opens Google's permission window (needed once). */
-export async function shareToken(interactive) {
-  if (hasShareAccess()) return FT;
-  if (!gClient()) throw new Error('Add your Google Client ID in Settings first.');
-  await loadGIS();
-  return new Promise((res, rej) => {
-    const c = google.accounts.oauth2.initTokenClient({ client_id: gClient(), scope: 'openid email profile ' + SCOPE,
-      callback: r => { if (r.error) return rej(new Error(r.error)); FT = r.access_token; FEXP = Date.now() + (r.expires_in || 3600) * 1000; try { localStorage.setItem(tkey(), JSON.stringify({ t: FT, exp: FEXP })); } catch {} res(FT); },
-      error_callback: e => rej(new Error(e?.type || 'popup_closed')) });
-    c.requestAccessToken({ prompt: interactive ? '' : 'none', hint: getAccount()?.email || undefined });
-  });
-}
-async function df(url, opt = {}, interactive = true) {
-  const t = await shareToken(interactive), r = await fetch(url, { ...opt, headers: { Authorization: 'Bearer ' + t, ...(opt.headers || {}) } });
-  if (r.status === 401) { FT = null; try { localStorage.removeItem(tkey()); } catch {} throw new Error('auth'); }
-  if (r.status === 403) throw new Error('Google refused. Make sure the Google Drive API is enabled for your project.');
-  if (!r.ok) throw new Error('Drive error ' + r.status);
-  return r;
-}
+export const canShare = () => hasServer() && signedIn() && !!user();
+const rand = n => { const a = new Uint8Array(n); (globalThis.crypto || window.crypto).getRandomValues(a); return Array.from(a, v => 'abcdefghijkmnpqrstuvwxyz23456789'[v % 32]).join(''); };
 
 export const codeOf = id => 'wn-' + id;
 export const idOf = c => (String(c || '').trim().match(/^wn-([\w-]{10,80})$/) || [])[1] || '';
@@ -49,32 +21,30 @@ export function snapshot() {
 
 export async function createShare() {
   if (S.cfg.myShare?.id) return myCode();
-  const b = 'wn' + Date.now();
-  const mp = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: 'whatsnext-share.json' })}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(snapshot())}\r\n--${b}--`;
-  const f = await (await df(`${UPL}/files?uploadType=multipart&fields=id`, { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body: mp })).json();
-  try { await df(`${DRV}/files/${f.id}/permissions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) }); }
-  catch (e) { await df(`${DRV}/files/${f.id}`, { method: 'DELETE' }).catch(() => {}); throw e; }
-  S.cfg.myShare = { id: f.id, ts: Date.now() }; save(); return myCode();
+  if (!canShare()) throw new Error('Sign in first.');
+  const id = rand(22);
+  try { await rest('wn_shares', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: { code: id, owner: user().id, data: snapshot(), updated_at: new Date().toISOString() } }); }
+  catch (e) { throw new Error(/wn_shares|relation|42P01|PGRST205/.test(e.message + (e.code || '')) ? 'The database is not set up for sharing yet. Run supabase/setup.sql in your Supabase project.' : e.message); }
+  S.cfg.myShare = { id, ts: Date.now() }; save(); return myCode();
 }
-export async function updateShare(interactive = false) {
-  if (!S.cfg.myShare?.id) return;
-  await df(`${UPL}/files/${S.cfg.myShare.id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot()) }, interactive);
+export async function updateShare() {
+  if (!S.cfg.myShare?.id || !canShare()) return;
+  await rest(`wn_shares?code=eq.${encodeURIComponent(S.cfg.myShare.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { data: snapshot(), updated_at: new Date().toISOString() } });
   S.cfg.myShare = { ...S.cfg.myShare, ts: Date.now() }; save(false);
 }
-/** Turn the code off. The file is deleted, so every friend's copy of the code stops working. */
+/** Turn the code off. The copy is deleted, so every friend's copy of the code stops working. */
 export async function stopShare() {
   const id = S.cfg.myShare?.id; if (!id) return;
-  try { await df(`${DRV}/files/${id}`, { method: 'DELETE' }); } catch (e) { if (!/404/.test(e.message)) throw e; }
+  await rest(`wn_shares?code=eq.${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
   S.cfg.myShare = null; save();
 }
 
 /** Read a friend's shared taste. Throws a friendly error if the code is wrong or was turned off. */
 export async function fetchFriend(id) {
-  const k = apiKey(); if (!k) throw new Error('Add a Google API key in Settings to use friend codes.');
-  let r; try { r = await fetch(`${DRV}/files/${encodeURIComponent(id)}?alt=media&key=${encodeURIComponent(k)}`); } catch { throw new Error('Could not reach Google. Check your connection.'); }
-  if (r.status === 404 || r.status === 403 || r.status === 400) throw new Error('This code is not active. Ask your friend for a new one.');
-  if (!r.ok) throw new Error('Could not load that code (' + r.status + ').');
-  const d = await r.json(); if (d?.kind !== 'wn-share') throw new Error('That is not a What\'s Next code.');
+  if (!canShare()) throw new Error('Sign in to use friend codes.');
+  let d; try { d = await rpc('wn_get_share', { p_code: id }); } catch (e) { throw new Error(/Could not reach/.test(e.message) ? e.message : 'Could not load that code. ' + e.message); }
+  if (!d) throw new Error('This code is not active. Ask your friend for a new one.');
+  if (d?.kind !== 'wn-share') throw new Error('That is not a What\'s Next code.');
   return d;
 }
 /** A friend's shared titles, shaped like a library so the same taste maths works on it. */
@@ -95,10 +65,10 @@ export function removeFriend(id) { S.cfg.friends = friends().filter(f => f.id !=
 export function renameFriend(id, name) { S.cfg.friends = friends().map(f => (f.id === id ? { ...f, name } : f)); save(false); }
 
 let timer = 0;
-/** Keep your shared copy fresh a little after you change your library (only if Google is already connected). */
+/** Keep your shared copy fresh a little after you change your library. */
 export function schedulePublish() {
   clearTimeout(timer);
-  if (!S.cfg.myShare?.id || !hasShareAccess()) return;
+  if (!S.cfg.myShare?.id || !canShare()) return;
   timer = setTimeout(() => updateShare(false).catch(() => {}), 15000);
 }
 document.addEventListener('wn:lib', schedulePublish);

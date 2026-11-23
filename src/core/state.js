@@ -3,9 +3,8 @@ import { scheduleSync } from './sync.js';
 export { DEF };
 
 /* ---------- storage layout ----------
-   Everything is private to the signed-in Google account. Keys are namespaced by its id:
-   wn:acct         the signed-in Google account on this browser (none = signed out, nothing is shown)
-   wn:device       the Google Client ID only (app setup, no personal data)
+   Everything is private to the signed-in account. Keys are namespaced by its id:
+   wn:acct         the signed-in account on this browser (none = signed out, nothing is shown)
    wn:<id>:device  that account's API keys and sync flags
    wn:<id>:meta    { list: profiles, del: tombstones, last }
    wn:<id>:p:<pid> one profile's library, prefs, notes and cached metadata */
@@ -22,13 +21,13 @@ export const pinHash = p => { let h = 5381; for (const c of 'wn:' + p) h = ((h <
 export const PROFILES = { list: [], del: {}, last: null };
 export const ACTIVE = { id: null };
 export const getAccount = () => ACCT;
-let DEVICE = { ...splitCfg(clone(DEF.cfg))[0], gClient: read(LS.gdev)?.gClient || '' };
+let DEVICE = { ...splitCfg(clone(DEF.cfg))[0] };
 function loadDevice() {
-  const base = splitCfg(clone(DEF.cfg))[0], g = read(LS.gdev) || {};
-  DEVICE = { ...base, gClient: g.gClient || '', ...(NS ? read(LS.device()) || {} : {}), gClient: g.gClient || '' };
+  const base = splitCfg(clone(DEF.cfg))[0];
+  DEVICE = { ...base, ...(NS ? read(LS.device()) || {} : {}) };
   DEVICE.gUser = ACCT ? { name: ACCT.name, email: ACCT.email, picture: ACCT.picture } : null; DEVICE.gSync = !!ACCT;
 }
-const writeDevice = () => { if (NS) write(LS.device(), DEVICE); write(LS.gdev, { gClient: DEVICE.gClient || '' }); };
+const writeDevice = () => { if (NS) write(LS.device(), DEVICE); };
 
 export const blank = () => ({ cfg: { ...clone(DEF.cfg), ...DEVICE }, lib: {}, del: {}, meta: {}, sum: {} });
 export let S = blank();
@@ -78,8 +77,8 @@ export function leaveProfile() {
   try { sessionStorage.removeItem(LS.session); } catch {}
   applyTheme();
 }
-export function createProfile({ name, emoji = '🎬', color = DEF_COLOR, kids = false, pin = '' }) {
-  const rec = { id: newId(), name: (name || 'Me').trim().slice(0, 18), emoji, color, kids: !!kids, pin: pin ? pinHash(pin) : '', ts: Date.now() };
+export function createProfile({ name, emoji = '🎬', color = DEF_COLOR, kids = false, pin = '', bio = false }) {
+  const rec = { id: newId(), name: (name || 'Me').trim().slice(0, 18), emoji, color, kids: !!kids, pin: pin ? pinHash(pin) : '', ...(bio ? { bio: true } : {}), ts: Date.now() };
   PROFILES.list.push(rec); writeProfileData(rec.id, { cfg: {}, lib: {}, del: {}, meta: {}, sum: {} }); saveMeta(); return rec;
 }
 export function updateProfile(id, patch) {
@@ -94,6 +93,8 @@ export function deleteProfile(id) {
   saveMeta();
 }
 export const isUnlocked = id => { try { return sessionStorage.getItem(LS.unlocked(id)) === '1'; } catch { return false; } };
+/** A profile asks to be unlocked when it has a PIN, or a fingerprint/face lock and this device has fingerprint/face set up. */
+export const isLocked = p => !!p && !isUnlocked(p.id) && (!!p.pin || (!!p.bio && !!read(`wn:${NS}:bio`)?.cred));
 export const unlock = id => { try { sessionStorage.setItem(LS.unlocked(id), '1'); } catch {} };
 
 /** Move data saved before accounts existed into the first Google account that signs in on this browser. */
@@ -106,7 +107,7 @@ function claimLegacy() {
     try { localStorage.removeItem('wn:meta'); } catch {}
   }
   const gd = read(LS.gdev);
-  if (gd && !read(LS.device())) { const { gClient, gUser, gSync, ...rest } = gd; if (Object.keys(rest).length) { write(LS.device(), rest); write(LS.gdev, { gClient: gClient || '' }); } }
+  if (gd && !read(LS.device())) { const { gClient, gUser, gSync, ...rest } = gd; if (Object.keys(rest).length) write(LS.device(), rest); }
 }
 
 function loadAccountProfiles() {
@@ -125,15 +126,34 @@ function loadAccountProfiles() {
   }
 }
 
-/** Sign a Google account in on this browser and open its private space. Nothing from another account is loaded. */
+/** Sign an account in on this browser and open its private space. Nothing from another account is loaded. */
 export function setAccount(u) {
   if (ACTIVE.id && ACCT) save(false);
   const sub = String(u.sub || u.email || '');
   ACCT = { sub, email: u.email || '', name: u.name || '', picture: u.picture || '' };
-  NS = sub.replace(/[^\w-]/g, ''); write(LS.acct, ACCT);
+  NS = sub.replace(/[^\w-]/g, ''); write(LS.acct, ACCT); rememberNS();
   try { sessionStorage.removeItem(LS.session); } catch {}
   claimLegacy(); loadDevice(); loadAccountProfiles(); writeDevice();
   S = blank(); ACTIVE.id = null; applyTheme();
+}
+/** Saved spaces on this browser left by an older login (the Google one used before email sign-in). Offered once, to the first email account only,
+    so one person's data is never offered to another account on a shared device. */
+export function oldSpaces() {
+  const out = []; if (read('wn:oldoffer') || !NS) return out;
+  const known = read('wn:known') || [];
+  try { for (let i = 0; i < localStorage.length; i++) { const m = /^wn:([\w-]+):meta$/.exec(localStorage.key(i) || ''); if (!m || m[1] === NS || known.includes(m[1])) continue; const v = read(localStorage.key(i)); const n = (v?.list || []).length; if (n) out.push({ ns: m[1], profiles: n }); } } catch {}
+  return out;
+}
+export const markOldOffered = () => write('wn:oldoffer', 1);
+const rememberNS = () => { const k = read('wn:known') || []; if (NS && !k.includes(NS)) write('wn:known', [...k, NS]); };
+/** Copy an older space on this browser into the account that is signed in now. Nothing is removed from the old one. */
+export function adoptSpace(ns) {
+  if (!NS || !ns || ns === NS) return false;
+  try {
+    const keys = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(`wn:${ns}:`)) keys.push(k); }
+    for (const k of keys) localStorage.setItem(`wn:${NS}:` + k.slice(`wn:${ns}:`.length), localStorage.getItem(k));
+  } catch { return false; }
+  loadDevice(); loadAccountProfiles(); writeDevice(); return true;
 }
 /** Sign out: forget the account on this browser. Its data stays in its own namespace and can't be reached without signing in again. */
 export function clearAccount() {
@@ -146,11 +166,11 @@ export function clearAccount() {
 /** On page load: restore the signed-in account (if any) and its profiles, and auto-enter when there's an obvious choice. */
 export function bootProfiles() {
   const a = read(LS.acct);
-  if (a && a.sub) { ACCT = a; NS = String(a.sub).replace(/[^\w-]/g, ''); claimLegacy(); }
+  if (a && a.sub) { ACCT = a; NS = String(a.sub).replace(/[^\w-]/g, ''); rememberNS(); claimLegacy(); }
   loadDevice(); S = blank();
   if (!ACCT) { applyTheme(); return; }
   loadAccountProfiles();
   let sess = null; try { sess = sessionStorage.getItem(LS.session); } catch {}
   const cand = PROFILES.list.find(p => p.id === sess) || (PROFILES.list.length === 1 ? PROFILES.list[0] : null);
-  if (cand && (!cand.pin || isUnlocked(cand.id))) activate(cand.id); else applyTheme();
+  if (cand && !isLocked(cand)) activate(cand.id); else applyTheme();
 }

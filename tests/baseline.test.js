@@ -10,7 +10,7 @@ const pd = () => { const f = state.driveFile; if (f.v === 2) { const m = JSON.pa
 describe('core flows (legacy single-profile seed)', () => {
   beforeAll(async () => {
     state.driveFile = { v: 1, ts: 1, lib: { 'movie:777': { id: 777, type: 'movie', title: 'Remote Film', year: '2019', poster: '/p.jpg', genres: [18], status: 'watched', my: 10, ts: 5 } }, del: {}, meta: {}, cfg: { key: 'K'.repeat(32), geminiKey: 'remote-gem', langs: ['hi'] } };
-    await boot({ watchnext: { cfg: { key: 'a'.repeat(32), geminiKey: 'gem-key', omdbKey: 'om', gClient: 'cid.apps.googleusercontent.com' }, lib: {} } });
+    await boot({ watchnext: { cfg: { key: 'a'.repeat(32), geminiKey: 'gem-key', omdbKey: 'om' }, lib: {} } });
   }, 20000);
 
   it('renders the main pages', async () => {
@@ -73,7 +73,7 @@ describe('core flows (legacy single-profile seed)', () => {
     expect([...document.querySelectorAll('.why')].some(x => x.textContent === 'Based on your watch history')).toBe(true);
   });
 
-  it('Google sync merges remote data, uploads local, propagates deletes', async () => {
+  it('Account sync merges remote data, uploads local, propagates deletes', async () => {
     location.hash = '#/foryou'; await sleep(200); click('#gear'); await sleep(200); click('#sGin'); await sleep(1500);
     expect(lib()['movie:777']).toBeTruthy(); expect(pd().lib['tv:7']).toBeTruthy();
     location.hash = '#/t/movie/21'; await sleep(300); click('[data-act="watched"]'); await sleep(3200);

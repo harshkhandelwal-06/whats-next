@@ -2,9 +2,9 @@ export const IMG = 'https://image.tmdb.org/t/p/';
 
 export const BASE = 'https://api.themoviedb.org/3';
 
-export const GOOGLE_CLIENT_ID = '';
-export const GOOGLE_API_KEY = '';   // optional: bake your Google API key in here instead of typing it in Settings
-   // optional: paste your Google OAuth Client ID here before hosting it for your phone
+// Your Supabase project (Project Settings -> API). Both values are safe to publish: the anon key only works within the row rules in supabase/setup.sql.
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 export const LANGS = [['','Any language'],['en','English'],['hi','Hindi'],['ta','Tamil'],['te','Telugu'],['ml','Malayalam'],['kn','Kannada'],['bn','Bengali'],['mr','Marathi'],['pa','Punjabi'],['ko','Korean'],['ja','Japanese'],['zh','Chinese'],['es','Spanish'],['fr','French'],['de','German'],['it','Italian'],['pt','Portuguese'],['tr','Turkish'],['th','Thai'],['ru','Russian'],['ar','Arabic']];
 
 export const REGIONS = ['IN','US','GB','CA','AU','DE','FR','ES','IT','JP','KR','BR','MX','AE','SG'];

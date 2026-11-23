@@ -1,6 +1,6 @@
 import { ACTIVE, S, bootProfiles } from './core/state.js';
 import { initProfiles } from './features/profiles.js';
-import { gClient, setSync, syncNow, hasToken } from './core/sync.js';
+import { setSync, signedIn, syncNow } from './core/sync.js';
 import { route } from './router.js';
 import './app/events.js';
 import './core/ai.js';
@@ -42,11 +42,9 @@ document.documentElement.classList.add('rdy');   // styles are in; reveal the pa
 bootProfiles();
 window.addEventListener('hashchange', () => route());
 
-setSync(S.cfg.gSync ? 'off' : 'off');
+setSync('off');
 
-if (S.cfg.gSync && gClient()) setTimeout(() => syncNow(false), 900);   // renews a lapsed Google session quietly, with no click
-// If the hour-long Google session lapsed, quietly renew it on your first click or tap (browsers only allow Google's small window after a tap).
-if (S.cfg.gSync && gClient()) addEventListener('click', () => { if (!hasToken() && S.cfg.gSync) syncNow(false); }, { once: true, capture: true });
+if (signedIn()) setTimeout(() => syncNow(false), 900);   // pulls in anything saved from another device
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
 

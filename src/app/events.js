@@ -1,7 +1,6 @@
 import { RATES } from '../core/config.js';
 import { lists, rateToast, refreshView, toast, toggle } from '../core/library.js';
 import { DEF, S, save } from '../core/state.js';
-import { gClient, syncNow } from '../core/sync.js';
 import { $, key } from '../core/utils.js';
 import { openAssistant } from '../features/aibubble.js';
 import { DECK, swipe, undoSwipe } from '../pages/swipe.js';

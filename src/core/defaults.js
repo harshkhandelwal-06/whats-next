@@ -1,10 +1,10 @@
 // Pure defaults. No imports, so any module (and the unit tests) can use them without cycles.
-export const DEVICE_KEYS = ['key', 'geminiKey', 'geminiModel', 'omdbKey', 'gClient', 'gApiKey', 'gSync', 'gSyncKeys', 'gUser'];
+export const DEVICE_KEYS = ['key', 'geminiKey', 'geminiModel', 'omdbKey', 'gSync', 'gSyncKeys', 'gUser'];
 export const PREF_KEYS = ['region', 'langs', 'providers', 'hideSeen', 'type', 'f', 'lists', 'friends', 'myShare'];
 export const DEFAULT_LIST = { id: 'next', name: 'Next to watch' };
 export const DEF = {
   cfg: {
-    key: '', geminiKey: '', geminiModel: '', omdbKey: '', gClient: '', gApiKey: '', gSync: false, gSyncKeys: true, gUser: null,
+    key: '', geminiKey: '', geminiModel: '', omdbKey: '', gSync: false, gSyncKeys: true, gUser: null,
     shown: [], region: 'IN', type: 'movie', langs: [], providers: [], hideSeen: true, kids: false, lists: [{ id: 'next', name: 'Next to watch' }], friends: [], myShare: null,
     f: { genres: [], lang: '', sort: '', era: '', min: '', myOnly: false },
   },

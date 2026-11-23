@@ -5,9 +5,8 @@ import { ACTIVE, PROFILES, S, loadProfileData } from '../core/state.js';
 import { $, $$, esc, key, rand, shuffle } from '../core/utils.js';
 import { card } from '../ui/components.js';
 import { toast } from '../core/library.js';
-import { idOf, addFriend, apiKey, codeOf, createShare, fetchFriend, friendLib, friends, hasShareAccess, myCode, removeFriend, stopShare, updateShare } from '../core/friends.js';
+import { idOf, addFriend, canShare, codeOf, createShare, fetchFriend, friendLib, friends, myCode, removeFriend, stopShare, updateShare } from '../core/friends.js';
 import { getAccount } from '../core/state.js';
-import { gClient } from '../core/sync.js';
 import { GN } from '../core/state.js';
 import { modal, closeModal } from '../ui/settings.js';
 
@@ -30,7 +29,7 @@ export async function pageNight(m, tok) {
   const profs = PROFILES.list, acct = getAccount();
   const sel = new Set(profs.slice(0, 1).map(p => 'p:' + p.id));
   let type = S.cfg.type, seenBy = 'none'; const gsel = new Set();
-  const ready = () => !!acct && !!gClient();
+  const ready = () => !!acct && canShare();
 
   m.innerHTML = `<div class="nt"><div class="nt-hero"><div><h1>Movie night</h1><p class="mut">Pick who's watching. We find something everyone should enjoy, using everyone's taste and what they've already seen.</p></div></div>
     <section class="nt-card"><div class="nt-h"><h2>Who's watching</h2><button class="btn ghost" id="ntAdd">＋ Add a friend</button></div><div id="ntPeople" class="nt-people"></div><p class="mut nt-note">Friends join with a share code. Ask them for theirs, or share yours below.</p></section>
@@ -60,7 +59,7 @@ export async function pageNight(m, tok) {
       <div class="nt-btns"><button class="primary" id="ntMake">Create my code</button></div><p class="err nt-err" id="ntErr"></p>`;
   };
   drawFilters(); drawPeople(); drawShare();
-  if (myCode() && hasShareAccess()) updateShare(false).catch(() => {});
+  if (myCode() && canShare()) updateShare().catch(() => {});
 
   $('#ntType').onclick = e => { const b = e.target.closest('[data-t]'); if (!b) return; type = b.dataset.t; gsel.clear(); drawFilters(); };
   $('#ntSeen').onclick = e => { const b = e.target.closest('[data-s]'); if (!b) return; seenBy = b.dataset.s; drawFilters(); };
@@ -74,9 +73,9 @@ export async function pageNight(m, tok) {
   $('#ntShare').onclick = async e => {
     const b = e.target.closest('button'); if (!b) return;
     try {
-      if (b.id === 'ntMake') { if (!ready()) return ($('#ntErr').textContent = 'Sign in with Google and set a Client ID in Settings first.'); b.disabled = true; b.textContent = 'Creating…'; await createShare(); drawShare(); }
+      if (b.id === 'ntMake') { if (!ready()) return ($('#ntErr').textContent = 'Sign in first.'); b.disabled = true; b.textContent = 'Creating…'; await createShare(); drawShare(); }
       else if (b.id === 'ntCopy') { try { await navigator.clipboard.writeText(myCode()); b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); } catch { const r = document.createRange(); r.selectNodeContents($('#ntCode')); getSelection().removeAllRanges(); getSelection().addRange(r); } }
-      else if (b.id === 'ntUpd') { b.disabled = true; await updateShare(true); toast('Your shared taste is up to date', 1800); b.disabled = false; }
+      else if (b.id === 'ntUpd') { b.disabled = true; await updateShare(); toast('Your shared taste is up to date', 1800); b.disabled = false; }
       else if (b.id === 'ntOff' && confirm('Turn off your code? Friends using it will lose access.')) { await stopShare(); drawShare(); toast('Your code is off', 1800); }
     } catch (er) { toast(esc(er.message), 5000); drawShare(); }
   };

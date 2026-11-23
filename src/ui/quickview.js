@@ -66,8 +66,9 @@ export async function openQuick(type, id) {
       <div id="qvFull" class="qv-full"><div class="spin"></div></div>
     </div>`;
   const body = $('.qv', el); body.scrollTop = 0;
-  // the popup grows toward full screen as you scroll down, and shrinks back as you scroll up
-  body.addEventListener('scroll', () => el.style.setProperty('--p', Math.min(1, Math.max(0, (body.scrollTop - 30) / 420)).toFixed(3)), { passive: true });
+  // The popup grows to full screen once you scroll down and settles back near the top. It changes size once, smoothly, so scrolling itself never fights the layout.
+  let big = false;
+  body.addEventListener('scroll', () => { const t = body.scrollTop; if (!big && t > 48) { big = true; el.classList.add('big'); } else if (big && t < 8) { big = false; el.classList.remove('big'); } }, { passive: true });
   const paintTrk = () => {
     const slot = $('#qvTrk', el); if (!slot) return; const e = S.lib[k], st = e?.status;
     const show = type === 'tv' && st !== 'watched' && st !== 'hidden' || st === 'watching';

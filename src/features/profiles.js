@@ -1,9 +1,12 @@
 import { COLORS } from '../core/defaults.js';
-import { ACTIVE, PROFILES, S, activate, clearAccount, createProfile, deleteProfile, getAccount, isUnlocked, pinHash, unlock, updateProfile } from '../core/state.js';
+import { ACTIVE, PROFILES, S, activate, clearAccount, createProfile, deleteProfile, getAccount, isLocked, isUnlocked, pinHash, unlock, updateProfile } from '../core/state.js';
+import { toast } from '../core/library.js';
 import { $, esc } from '../core/utils.js';
 import { route } from '../router.js';
 import { closeModal } from '../ui/settings.js';
-import { gSignOut } from '../core/sync.js';
+import * as bio from '../core/bio.js';
+import { refreshToken, signOutRemote } from '../core/supa.js';
+import { syncNow } from '../core/sync.js';
 import { openWelcome } from './welcome.js';
 import { showBubble } from './aibubble.js';
 
@@ -33,10 +36,16 @@ export function enter(id) {
   $('#picker')?.remove(); renderWho(); location.hash = '#/foryou'; route(true);
 }
 
-function askPin(p) {
+const bioOn = p => !!p.bio && bio.enabled();
+async function tryBio(p) {
+  try { await bio.verify(); unlock(p.id); enter(p.id); return true; } catch (e) { const er = $('#pinErr'); if (er) er.textContent = e.message; return false; }
+}
+function askLock(p) { if (bioOn(p)) { askPin(p, true); tryBio(p); } else askPin(p); }
+function askPin(p, auto = false) {
   const d = $('#pinBox'); d.hidden = false;
-  d.innerHTML = `<p>Enter the PIN for <b>${esc(p.name)}</b></p><input id="pinIn" inputmode="numeric" maxlength="6" type="password" autocomplete="off"><div class="err" id="pinErr"></div>`;
-  const i = $('#pinIn'); i.focus();
+  d.innerHTML = `<p>${bioOn(p) ? `Unlock <b>${esc(p.name)}</b>` : `Enter the PIN for <b>${esc(p.name)}</b>`}</p>${bioOn(p) ? '<button class="btn" id="pinBio">Use fingerprint or face</button>' : ''}${p.pin ? `<input id="pinIn" inputmode="numeric" maxlength="6" type="password" autocomplete="off" placeholder="${bioOn(p) ? 'Or type the PIN' : ''}">` : ''}<div class="err" id="pinErr"></div>`;
+  $('#pinBio')?.addEventListener('click', () => tryBio(p));
+  const i = $('#pinIn'); if (!i) return; if (!auto) i.focus();
   i.oninput = () => { if (i.value.length >= 4 && pinHash(i.value) === p.pin) { unlock(p.id); enter(p.id); } else if (i.value.length >= 6) { $('#pinErr').textContent = 'Wrong PIN. Try again.'; i.value = ''; } };
 }
 
@@ -48,7 +57,7 @@ export function openPicker({ manage = false } = {}) {
     el.innerHTML = `<div class="pk-in">
       <h1>${manage ? 'Manage profiles' : "Who's watching?"}</h1>
       <div class="pk-grid">
-        ${PROFILES.list.map(p => `<button class="pk" data-id="${p.id}" style="--c:${avColor(p)}"><span class="av big">${esc(ini(p.name))}</span><b>${esc(p.name)}</b>${p.kids ? '<small>Kids</small>' : p.pin ? '<small>PIN protected</small>' : ''}${manage ? '<i class="pen">✎</i>' : ''}</button>`).join('')}
+        ${PROFILES.list.map(p => `<button class="pk" data-id="${p.id}" style="--c:${avColor(p)}"><span class="av big">${esc(ini(p.name))}</span><b>${esc(p.name)}</b>${p.kids ? '<small>Kids</small>' : p.pin ? '<small>PIN protected</small>' : bioOn(p) ? '<small>Fingerprint locked</small>' : ''}${manage ? '<i class="pen">✎</i>' : ''}</button>`).join('')}
         <button class="pk add" data-add><span class="av big">＋</span><b>Add profile</b></button>
       </div>
       <div id="pinBox" class="pinbox" hidden></div>
@@ -59,7 +68,7 @@ export function openPicker({ manage = false } = {}) {
     el.querySelectorAll('.pk[data-id]').forEach(b => b.onclick = () => {
       const p = PROFILES.list.find(x => x.id === b.dataset.id);
       if (manage) return editor(p);
-      if (p.pin && !isUnlocked(p.id)) return askPin(p);
+      if (isLocked(p)) return askLock(p);
       enter(p.id);
     });
     el.querySelector('[data-add]').onclick = () => editor(null);
@@ -77,6 +86,7 @@ export function openPicker({ manage = false } = {}) {
       <label class="chk"><input type="checkbox" id="edKids" ${st.kids ? 'checked' : ''}> Kids profile (family-friendly titles only)</label>
       <input id="edPin" inputmode="numeric" maxlength="6" placeholder="${p?.pin ? 'New PIN (blank keeps the current one)' : 'Optional PIN, 4 to 6 digits'}">
       ${p?.pin ? '<label class="chk"><input type="checkbox" id="edNoPin"> Remove PIN</label>' : ''}
+      ${bio.enabled() ? `<label class="chk"><input type="checkbox" id="edBio" ${p?.bio ? 'checked' : ''}> Lock with fingerprint or face on this device</label>` : '<p class="sub small">To lock a profile with your fingerprint or face, turn it on first in Settings → Account.</p>'}
       <div class="err" id="edErr"></div>
       <div class="pk-foot"><button class="btn" id="edSave">Save</button><button class="btn ghost" id="edCancel">Cancel</button>${p ? '<button class="btn danger" id="edDel">Delete profile</button>' : ''}</div></div>`;
     const sync = () => { const a = $('#edAv'); a.textContent = ini($('#edName').value || '?'); a.style.setProperty('--c', st.color || avColor({ name: $('#edName').value })); };
@@ -88,8 +98,8 @@ export function openPicker({ manage = false } = {}) {
       if (!name) return err.textContent = 'Give the profile a name.';
       if (pin && !/^\d{4,6}$/.test(pin)) return err.textContent = 'A PIN is 4 to 6 digits.';
       const kids = $('#edKids').checked;
-      if (p) updateProfile(p.id, { name, emoji: st.emoji, color: st.color, kids, ...(pin ? { pin } : $('#edNoPin')?.checked ? { pin: '' } : {}) });
-      else createProfile({ name, emoji: st.emoji, color: st.color, kids, pin });
+      if (p) updateProfile(p.id, { name, emoji: st.emoji, color: st.color, kids, ...($('#edBio') ? { bio: $('#edBio').checked } : {}), ...(pin ? { pin } : $('#edNoPin')?.checked ? { pin: '' } : {}) });
+      else createProfile({ name, emoji: st.emoji, color: st.color, kids, pin, bio: !!$('#edBio')?.checked });
       renderWho(); draw();
     };
     $('#edDel')?.addEventListener('click', () => {
@@ -103,10 +113,15 @@ export function openPicker({ manage = false } = {}) {
 /** Menu from the header avatar. */
 export const openWhoMenu = () => openPicker();
 
-export function signOut() {
-  gSignOut(); clearAccount();
+export async function signOut() {
+  // push the last changes first (never wait more than a moment), then forget the login on this device
+  try { await Promise.race([syncNow(false), new Promise(r => setTimeout(r, 2500))]); } catch {}
+  const kept = bio.stash(refreshToken());   // fingerprint/face unlock keeps the login valid so it can bring you back
+  await signOutRemote(kept); clearAccount();
   $('#picker')?.remove(); renderWho(); $('#view').innerHTML = ''; openWelcome();
 }
+// the server ended this login (password changed elsewhere, or it expired)
+document.addEventListener('wn:authlost', () => { if (!getAccount()) return; toast('Your login ended. Sign in again to keep syncing.', 5000); signOut(); });
 
 export function initProfiles() {
   renderWho();

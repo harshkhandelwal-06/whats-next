@@ -1,6 +1,44 @@
-// Fake TMDB, Gemini, Google Drive and OMDb used by the end-to-end tests.
+// Fake TMDB, Gemini, Supabase (email accounts, per-account data, share codes) and OMDb used by the end-to-end tests.
 export const mk = id => ({ id, title: 'Movie ' + id, name: 'Show ' + id, poster_path: '/p.jpg', backdrop_path: '/b.jpg', vote_average: 7.5, vote_count: 900, genre_ids: [18, 53, 28], release_date: '2020-01-01', first_air_date: '2020-01-01', overview: 'ov', original_language: 'en', popularity: 5 });
-export const state = { driveFile: null, calls: [], geminiFail: 0, sub: 'u1' };
+export const SB = 'https://test.supabase.co';
+export const state = { calls: [], geminiFail: 0, geminiBusy: false, rows: {}, shares: {}, users: { 't@example.com': { id: 'u1', pw: 'password1', name: 'Test User' } }, confirm: false, down: false };
+// the saved snapshot of the main test account, as it sits in the database
+Object.defineProperty(state, 'driveFile', { get() { return this.rows.u1 || null; }, set(v) { if (v == null) delete this.rows.u1; else this.rows.u1 = v; } });
+export const resetServer = () => { state.rows = {}; state.shares = {}; state.users = { 't@example.com': { id: 'u1', pw: 'password1', name: 'Test User' } }; state.confirm = false; state.down = false; };
+const sess = (id, u) => ({ access_token: 'at-' + id, refresh_token: 'rt-' + id, expires_in: 3600, user: { id, email: u.email, user_metadata: { name: u.name || '' } } });
+async function supabase(url, opt) {
+  const u = new URL(url), p = u.pathname, m = (opt.method || 'GET').toUpperCase(), body = opt.body ? JSON.parse(opt.body) : null;
+  const err = (status, msg, code) => res(status, { msg, message: msg, code });
+  if (state.down) throw new TypeError('offline');
+  const uid = (String(opt.headers?.Authorization || '').match(/^Bearer at-(.+)$/) || [])[1] || '';
+  if (p === '/auth/v1/signup') {
+    const e = body.email; if (state.users[e]) return err(422, 'User already registered', 'user_already_exists');
+    const id = 'u' + (Object.keys(state.users).length + 1); state.users[e] = { id, pw: body.password, name: body.data?.name || '' };
+    return state.confirm ? ok({ id, email: e }) : ok(sess(id, { email: e, name: body.data?.name }));
+  }
+  if (p === '/auth/v1/token') {
+    if (u.searchParams.get('grant_type') === 'refresh_token') { const id = String(body.refresh_token).replace('rt-', ''); const e = Object.keys(state.users).find(k => state.users[k].id === id); return e ? ok(sess(id, { email: e, name: state.users[e].name })) : err(400, 'Invalid Refresh Token'); }
+    const x = state.users[body.email]; if (!x || x.pw !== body.password) return err(400, 'Invalid login credentials');
+    return ok(sess(x.id, { email: body.email, name: x.name }));
+  }
+  if (p === '/auth/v1/logout') return ok({});
+  if (p === '/auth/v1/recover') { state.calls.push('recover:' + body.email); return ok({}); }
+  if (p === '/auth/v1/user') { const e = Object.keys(state.users).find(k => state.users[k].id === uid); if (!e) return err(401, 'bad jwt'); if (m === 'PUT') state.users[e].pw = body.password; return ok({ id: uid, email: e, user_metadata: { name: state.users[e].name } }); }
+  if (!uid) return err(401, 'JWT required');
+  if (p === '/rest/v1/wn_data') {
+    if (m === 'GET') return ok(state.rows[uid] ? [{ data: state.rows[uid] }] : []);
+    state.rows[uid] = body.data; return res(201, null);
+  }
+  if (p === '/rest/v1/wn_shares') {
+    const code = (u.searchParams.get('code') || '').replace('eq.', '');
+    if (m === 'POST') { state.shares[body.code] = { owner: uid, data: body.data }; return res(201, null); }
+    if (!state.shares[code] || state.shares[code].owner !== uid) return res(204, null);
+    if (m === 'PATCH') state.shares[code].data = body.data; if (m === 'DELETE') delete state.shares[code];
+    return res(204, null);
+  }
+  if (p === '/rest/v1/rpc/wn_get_share') return ok(state.shares[body.p_code]?.data ?? null);
+  return err(404, 'not found');
+}
 
 function tmdb(url) {
   const u = new URL(url), p = u.pathname.replace('/3', '');
@@ -27,12 +65,14 @@ function tmdb(url) {
   }
   return list();
 }
-const ok = j => ({ ok: true, status: 200, json: async () => j });
+const ok = j => ({ ok: true, status: 200, json: async () => j, text: async () => JSON.stringify(j) });
+const res = (status, j) => ({ ok: status < 400, status, json: async () => j, text: async () => (j == null ? '' : JSON.stringify(j)) });
 const gem = t => ok({ candidates: [{ content: { parts: [{ text: t }] } }] });
 
 export const fetchMock = async (url, opt = {}) => {
   url = String(url); state.calls.push(url.replace(/\?.*/, ''));
   if (url.includes('generativelanguage.googleapis.com')) {
+    if (state.geminiBusy) return { ok: false, status: 503, json: async () => ({ error: { message: 'This model is currently experiencing high demand.' } }) };
     if (state.geminiFail > 0) { state.geminiFail--; return { ok: false, status: 404, json: async () => ({ error: { message: 'model not found' } }) }; }
     const b = JSON.parse(opt.body), sys = b.systemInstruction.parts[0].text, last = b.contents[b.contents.length - 1].parts[0].text;
     if (sys.includes("You are What's Next")) {
@@ -46,10 +86,7 @@ export const fetchMock = async (url, opt = {}) => {
     return gem('ok');
   }
   if (url.includes('omdbapi')) return ok({ Response: 'True', imdbRating: '8.6', Ratings: [{ Source: 'Rotten Tomatoes', Value: '87%' }, { Source: 'Metacritic', Value: '74/100' }] });
-  if (url.includes('userinfo')) return ok({ sub: state.sub, name: 'Test User', email: state.sub + '@example.com', picture: '' });
-  if (url.includes('googleapis.com/drive/v3/files?')) return ok({ files: state.driveFile ? [{ id: 'F1' }] : [] });
-  if (url.includes('googleapis.com/drive/v3/files/F1')) return ok(state.driveFile);
-  if (url.includes('googleapis.com/upload')) { state.driveFile = JSON.parse(opt.method === 'PATCH' ? opt.body : opt.body.split('\r\n\r\n')[2].split('\r\n--')[0]); return ok({ id: 'F1' }); }
+  if (url.startsWith(SB)) return supabase(url, opt);
   if (url.includes('themoviedb')) return ok(tmdb(url));
   return ok({});
 };
@@ -62,13 +99,13 @@ export async function boot(seed, opts = {}) {
   const html = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
   document.body.innerHTML = html.slice(html.indexOf('<body>') + 6, html.indexOf('<script', html.indexOf('<body>')));
   localStorage.clear(); sessionStorage.clear(); localStorage.setItem('wn:fx', 'off');
-  if (!opts.signedOut) localStorage.setItem('wn:acct', JSON.stringify({ sub: 'u1', email: 't@example.com', name: 'Test User', picture: '' }));
+  localStorage.setItem('wn:supa', JSON.stringify({ url: SB, key: 'k'.repeat(40) }));
+  if (!opts.signedOut) { localStorage.setItem('wn:acct', JSON.stringify({ sub: 'u1', email: 't@example.com', name: 'Test User', picture: '' })); localStorage.setItem('wn:sess', JSON.stringify({ at: 'at-u1', rt: 'rt-u1', exp: Date.now() + 3600000, user: { id: 'u1', email: 't@example.com', name: 'Test User' } })); }
   if (seed) for (const [k, v] of Object.entries(seed)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
   location.hash = '';
   globalThis.fetch = window.fetch = fetchMock;
   globalThis.IntersectionObserver = class { observe() {} disconnect() {} };
   Element.prototype.setPointerCapture = () => {}; Element.prototype.scrollIntoView = () => {}; window.scrollTo = () => {}; window.confirm = () => true;
-  window.google = { accounts: { oauth2: { initTokenClient: cfg => ({ requestAccessToken: () => setTimeout(() => cfg.callback({ access_token: 'tok', expires_in: 3600 }), 5) }), revoke: () => {} } } };
   const vi = (await import('vitest')).vi; vi.resetModules();
   await import('../../src/main.js'); await sleep(450);
 }

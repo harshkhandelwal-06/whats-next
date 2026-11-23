@@ -1,5 +1,5 @@
 import { openPicker, signOut } from '../features/profiles.js';
-import { gClient, syncNow } from '../core/sync.js';
+import { hasServer, syncNow } from '../core/sync.js';
 import { $, $$ } from '../core/utils.js';
 import { openSettings } from './settings.js';
 import { applyThemeMode, themePref } from './theme.js';
@@ -11,7 +11,7 @@ export function closeAcct() { const m = menu(); if (!m || m.hidden) return; m.hi
 export function openAcct() {
   const m = menu(); if (!m) return; m.hidden = false; btn()?.setAttribute('aria-expanded', 'true');
   $$('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.th === themePref()));
-  const t = $('#syncTxt'); if (t) t.textContent = gClient() ? ($('#sync').classList.contains('ok') ? 'On' : $('#sync').classList.contains('err') ? 'Problem' : 'Reconnect') : 'Set up';
+  const t = $('#syncTxt'); if (t) t.textContent = hasServer() ? ($('#sync').classList.contains('ok') ? 'On' : $('#sync').classList.contains('err') ? 'Problem' : 'Sign in') : 'Set up';
 }
 const toggle = () => (menu().hidden ? openAcct() : closeAcct());
 
@@ -25,5 +25,5 @@ menu().addEventListener('click', e => {
   if (id === 'switchP') { closeAcct(); return openPicker(); }
   if (id === 'signout') { closeAcct(); return signOut(); }
   if (id === 'gear') { closeAcct(); return openSettings(); }
-  if (id === 'sync') { closeAcct(); return !gClient() ? openSettings() : syncNow(true); }
+  if (id === 'sync') { closeAcct(); return !hasServer() ? openSettings() : syncNow(true); }
 });

@@ -27,7 +27,11 @@ export async function askTurn(text) {
   text = (text || '').trim(); if (!text) return;
   CHAT.push({ role: 'user', text }); paintChat(true);
   try { const r = S.cfg.geminiKey ? await askAI() : await askLocal(text); CHAT.push({ role: 'bot', ...r }); }
-  catch (e) { CHAT.push({ role: 'bot', text: e.message || 'Something went wrong. Try again.', picks: [] }); }
+  catch (e) {
+    // Gemini overloaded or slow: answer from TMDB's own matching instead of leaving an error on screen
+    if (e.busy || /Could not reach Gemini/.test(e.message || '')) { try { const r = await askLocal(text); CHAT.push({ role: 'bot', ...r, text: (e.busy ? 'Gemini is busy right now, so this comes from the movie database instead. ' : '') + r.text.replace(/ Add a free Gemini key in Settings.*$/, '') }); paintChat(); return; } catch {} }
+    CHAT.push({ role: 'bot', text: e.message || 'Something went wrong. Try again.', picks: [] });
+  }
   paintChat();
 }
 
@@ -82,12 +86,19 @@ export async function askLocal(q) {
   const gid = (type, g) => type === 'tv' ? (TVG[g] || g) : g;
   let pool = [], type = t, head = '', refName = '';
   if (mm) {
-    const ref = await api('/search/multi', { query: mm[1] }); const rr = ref.results.find(x => x.media_type === 'movie' || x.media_type === 'tv');
-    if (rr) {
-      type = rr.media_type; refName = rr.title || rr.name;
-      const [a, b, d0] = await Promise.all([api(`/${type}/${rr.id}/recommendations`), api(`/${type}/${rr.id}/similar`), api(`/${type}/${rr.id}`)]);
-      pool = [...a.results, ...b.results].map(x => norm(x, type));
+    const refs = mm[1].split(/\s*,\s*|\s+or\s+/i).map(x => x.trim()).filter(Boolean).slice(0, 4), found = [], tally = new Map();
+    for (const name of refs) {
+      const ref = await api('/search/multi', { query: name }).catch(() => ({ results: [] })), rr = ref.results.find(x => x.media_type === 'movie' || x.media_type === 'tv');
+      if (!rr) continue; found.push({ rr, type: rr.media_type });
+    }
+    if (found.length) {
+      type = found[0].type; refName = found.map(f => f.rr.title || f.rr.name).join(', ').replace(/, ([^,]*)$/, found.length > 1 ? ' and $1' : ', $1');
+      const groups = await Promise.all(found.map(async f => { const [a, b] = await Promise.all([api(`/${f.type}/${f.rr.id}/recommendations`).catch(() => ({ results: [] })), api(`/${f.type}/${f.rr.id}/similar`).catch(() => ({ results: [] }))]); return { f, list: [...a.results, ...b.results] }; }));
+      const refKeys = new Set(found.map(f => f.type + ':' + f.rr.id));
+      for (const g of groups) for (const x of g.list) { const n = norm(x, g.f.type), k = key(n); if (refKeys.has(k)) continue; const c = tally.get(k); if (c) c.hits++; else tally.set(k, { n, hits: 1 }); }
+      pool = [...tally.values()].map(c => ({ ...c.n, hits: c.hits }));
       if (genres.length) {
+        const d0 = await api(`/${type}/${found[0].rr.id}`).catch(() => ({ genres: [] }));
         const gids = [...new Set([...(d0.genres || []).map(x => x.id).slice(0, 2), ...genres.map(g => gid(type, g))])];
         const dd = await api(`/discover/${type}`, { with_genres: gids.join(','), sort_by: 'popularity.desc', 'vote_count.gte': 300 }).catch(() => ({ results: [] }));
         pool.push(...dd.results.map(x => norm(x, type)));
@@ -107,7 +118,7 @@ export async function askLocal(q) {
   if (genres.length) parts.push(genres.map(g => GN[gid(type, g)]).filter(Boolean).join(' + '));
   if (maxRt) parts.push('under ' + Math.round(maxRt) + ' min'); if (gem) parts.push('hidden gem'); if (lang) parts.push(Object.keys(LG).find(k => LG[k] === lang));
   pool = dedupePicks(pool).filter(x => !lang || x.lang === lang).filter(x => !old || +x.year < 2000).filter(x => !fresh || +x.year >= new Date().getFullYear() - 4);
-  pool.forEach(x => x.sc = x.genres.filter(g => want.includes(g)).length * 2 + x.rating / 5 + Math.random() * .5);
+  pool.forEach(x => x.sc = x.genres.filter(g => want.includes(g)).length * 2 + (x.hits || 0) * 3 + x.rating / 5 + Math.random() * .5);
   const picks = pool.sort((a, b) => b.sc - a.sc).slice(0, 8).map(x => { const o = { ...x, why: refName ? `Similar to ${refName}${parts.length ? ' · ' + parts.join(', ') : ''}` : (parts.join(', ') || 'Popular pick') }; ITEMS.set(key(o), o); return o; });
   return { text: picks.length ? `${head}${parts.length && !refName ? ' (' + parts.join(', ') + ')' : ''}. Add a free Gemini key in Settings for smarter, conversational answers.` : 'I could not find a match. Try rewording, or loosen a filter.', picks };
 }
