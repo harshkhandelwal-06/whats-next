@@ -25,6 +25,8 @@ const nice = (r, d) => {
   if (/already registered|already been registered|user_already_exists/.test(m)) return 'That email already has an account. Sign in instead.';
   if (/email not confirmed/.test(m)) return 'Confirm your email first. Open the message we sent you, then sign in.';
   if (/password should be|weak_password/.test(m)) return 'Choose a stronger password (at least 8 characters).';
+  if (/same_password|different from the old/.test(m)) return 'Pick a password you have not used before.';
+  if (/reauthentication|session_not_found|session.*expired|jwt expired/.test(m)) return 'For safety, sign out and sign back in, then change your password.';
   if (/rate limit|too many|over_email_send_rate/.test(m) || r.status === 429) return 'Too many tries. Wait a minute and try again.';
   if (/signups? not allowed|signup_disabled/.test(m)) return 'New sign-ups are turned off for this app.';
   if (/valid email|invalid email|email_address_invalid/.test(m)) return 'That email address does not look right.';
@@ -76,7 +78,7 @@ export const refreshToken = () => sess?.rt || '';
 /** Pick a saved login back up from its refresh token (used after a fingerprint/face check). */
 export async function resume(rt) { keep({ at: '', rt, exp: 0, user: { id: '', email: '', name: '' } }); await token(); return whoAmI(); }
 export const sendReset = email => call('/auth/v1/recover?redirect_to=' + encodeURIComponent(location.origin + location.pathname), { method: 'POST', body: { email } }).then(() => true);
-export async function changePassword(password) { const t = await token(); await call('/auth/v1/user', { method: 'PUT', token: t, body: { password } }); return true; }
+export async function changePassword(password) { let t; try { t = await token(); } catch { throw new Error('Sign in with your email and password first, then change it here.'); } await call('/auth/v1/user', { method: 'PUT', token: t, body: { password } }); return true; }
 
 /** When a reset link brings the user back, the address carries a short-lived login. Take it, and tell the caller to ask for a new password. */
 export function takeRecovery() {
