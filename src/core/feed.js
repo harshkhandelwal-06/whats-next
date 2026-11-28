@@ -3,6 +3,7 @@ import { aiTaste } from './ai.js';
 import { GN, ITEMS, S } from './state.js';
 import { dislikedOf, likedOf, prefLang, recent, remember, taste, topGenres } from './rec.js';
 import { isSafeFor } from './safety.js';
+import { blocked, lean } from './taste.js';
 import { key, rand, shuffle } from './utils.js';
 
 /**
@@ -50,9 +51,9 @@ export function makeFeed(type, { bank = null, mark = true } = {}) {
       const got = (await Promise.all(pick.map(n => sources[n]()))).flat().sort((a, b) => !!b.why - !!a.why);  // titles with a personal reason win duplicates
       for (const o of got) {
         const it = norm(o.x, type), k = key(it);
-        if (seen.has(k) || !it.poster || !isSafeFor(S.cfg.kids, it) || ['watched', 'hidden'].includes(S.lib[k]?.status)) continue;
+        if (seen.has(k) || !it.poster || !isSafeFor(S.cfg.kids, it) || blocked(it) || ['watched', 'hidden'].includes(S.lib[k]?.status)) continue;
         seen.add(k);
-        let sc = Math.random() * .6 + it.rating / 10 + (o.w || 0);
+        let sc = Math.random() * .6 + it.rating / 10 + (o.w || 0) + lean(it);
         for (const g of it.genres) sc += (aff[g] || 0) * .15;
         if (S.cfg.langs.includes(it.lang)) sc += .3; if (neg.has(it.id)) sc -= 1.2; if (shown.has(k)) sc -= 1.2;
         const gn = it.genres.filter(g => tops.includes(g)).map(g => GN[g]).filter(Boolean);

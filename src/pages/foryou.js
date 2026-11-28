@@ -1,10 +1,12 @@
 import { api, norm, isSeen } from '../core/api.js';
 import { likedOf, prefLang, recent, recommend, remember, topGenres } from '../core/rec.js';
-import { ACTIVE, GN, S } from '../core/state.js';
+import { ACTIVE, GN, S, save } from '../core/state.js';
 import { $, esc, key, rand, shuffle } from '../core/utils.js';
 import { MOODS } from '../features/mood.js';
 import { enrichTrk, trkHtml } from '../features/tracker.js';
-import { RT } from '../router.js';
+import { RT, route } from '../router.js';
+import { blocked, note, setNote, summary } from '../core/taste.js';
+import { toast } from '../core/library.js';
 import { makeFeed } from '../core/feed.js';
 import { L } from '../core/api.js';
 import { gemFetcher } from './explore.js';
@@ -24,16 +26,28 @@ function sessionMoods() {
   return list;
 }
 
+/** "Your mood, in your words": a note that lives with the profile and keeps shaping Home until it is changed or cleared. */
+const sumHtml = t => { const s = summary(note(t)); return note(t) ? `<span class="ns-ok">Saved. It stays until you change or clear it.</span>${s.skip.length ? `<span class="ns-chip no">Skipping ${s.skip.map(esc).join(', ')}</span>` : ''}${s.lean.length ? `<span class="ns-chip yes">Leaning towards ${s.lean.map(esc).join(', ')}</span>` : ''}` : '<span class="mut">Say what you are, or are not, in the mood for. It sticks around, and it shapes your Home picks.</span>'; };
+const noteBox = t =>  `<form class="notebox${note(t) ? ' has' : ''}" id="noteForm" autocomplete="off"><label for="noteTxt">Your ${t === 'tv' ? 'TV' : 'movie'} mood, in your words</label>
+  <div class="noterow"><input id="noteTxt" maxlength="400" value="${esc(note(t))}" placeholder="${t === 'tv' ? 'No reality shows. Something I can binge.' : 'Not in the mood for superheroes. More slow, cosy stories.'}"><button class="primary" id="noteSave" type="submit">Save</button><button type="button" id="noteClear" ${note(t) ? '' : 'hidden'}>Clear</button></div><div class="nsum" id="nSum">${sumHtml(t)}</div></form>`;
+function wireNote(m, NK, t) {
+  const f = $('#noteForm', m); if (!f) return;
+  const apply = v => { setNote(v, t); save(); try { const k = NK(); if (k) localStorage.removeItem(k); } catch {} toast(v ? 'Mood saved. Refreshing your picks…' : 'Mood cleared. Back to normal picks.', 2200); route(); };
+  f.onsubmit = e => { e.preventDefault(); const v = $('#noteTxt', m).value.trim(); if (v !== note(t)) apply(v); else toast('Already saved.', 1400); };
+  $('#noteClear', m).onclick = () => apply('');
+  $('#noteTxt', m).oninput = e => { $('#noteSave', m).classList.toggle('dirty', e.target.value.trim() !== note(t)); };
+}
+
 export async function pageForYou(m, tok) {
   const t = S.cfg.type, liked = likedOf(t), names = topGenres(t, 3).map(id => GN[id]).filter(Boolean);
   const watching = Object.values(S.lib).filter(e => e.status === 'watching').sort((a, b) => b.ts - a.ts);
   const NK = () => !ACTIVE.id ? null : `wn:next:${ACTIVE.id}:${t}`;
-  const takeBank = () => { const k = NK(); if (!k) return null; try { const b = JSON.parse(localStorage.getItem(k) || 'null'); localStorage.removeItem(k); if (b?.items?.length && Date.now() - b.t < 36 * 36e5) return b.items; } catch {} return null; };
+  const takeBank = () => { const k = NK(); if (!k) return null; try { const b = JSON.parse(localStorage.getItem(k) || 'null'); localStorage.removeItem(k); if (b?.items?.length && Date.now() - b.t < 36 * 36e5) return b.items.filter(x => !blocked(x)); } catch {} return null; };
   const fillBank = () => { const k = NK(); if (!k) return; setTimeout(() => { if (tok !== RT) return; makeFeed(t, { mark: false })(1).then(r => { if (r.results.length) try { localStorage.setItem(k, JSON.stringify({ t: Date.now(), items: r.results.slice(0, 24).map(({ sc, ...x }) => x) })); } catch {} }).catch(() => {}); }, 2500); };
   let feed = makeFeed(t, { bank: takeBank() });
   const genreLanes = (names.length ? topGenres(t, 3).map(id => [id, GN[id]]) : []).concat(ids[t]).filter((g, i, a) => g[1] && a.findIndex(x => x[0] === g[0]) === i).slice(0, 4);
   const got = {};
-  const lane = (id, title, f0, extra = {}) => { const fetch = async page => { const r = await f0(page); return { ...r, results: (r.results || []).filter(x => !isSeen(x)) }; }; return ({ id, title, fetch, load: () => fetch(1), first: () => got[id], ...extra }); };
+  const lane = (id, title, f0, extra = {}) => { const fetch = async page => { const r = await f0(page); return { ...r, results: (r.results || []).filter(x => !isSeen(x) && !blocked(x)) }; }; return ({ id, title, fetch, load: () => fetch(1), first: () => got[id], ...extra }); };
   const lanes = [
     lane('top', t === 'movie' ? 'Top 10 movies this week' : 'Top 10 shows this week', L(`/trending/${t}/week`, {}, t), { rank: true, sub: 'Trending this week.' }),
     lane('pick', 'Picked for you', async page => { const r = await feed(page); if (page === 1 && tok === RT && r.results.length) { spotlight($('#spot'), r.results.slice(0, 8)); fillBank(); } return r; }, { sub: liked.length ? 'Based on your watch history.' : 'Popular right now. Rate a few titles and this row starts to fit you.' }),
@@ -46,10 +60,11 @@ export async function pageForYou(m, tok) {
   m.innerHTML = `<div id="spot"></div><div class="home">
     ${watching.length ? `<section class="shelf"><div class="shead"><h2>Continue watching</h2><a href="#/list/watchlist">See all</a></div><div class="trks" id="trk">${watching.slice(0, 4).map(trkHtml).join('')}</div></section>` : ''}
     <div class="moodrow"><span class="mut">In the mood for</span><div class="chips">${sessionMoods().map(x => `<a class="chip" href="#/mood/${x.id}">${x.n}</a>`).join('')}<a class="chip more" href="#/mood">All moods</a></div></div>
+    ${noteBox(t)}
     ${lanes.map(l => laneShell(l.id, l.title)).join('')}
     <div id="bentoSlot"></div>
 </div>`;
-    enrichTrk(m);
+    enrichTrk(m); wireNote(m, NK, t);
   $('#lane-top .refresh')?.remove();
   // Refresh: swap a row for different picks (a brand-new personalised feed for "Picked for you", another page for the rest).
   $('.home', m)?.addEventListener('click', e => {
@@ -71,7 +86,7 @@ export async function pageForYou(m, tok) {
     L(`/${t}/top_rated`, {}, t)(2).catch(() => ({ results: [] })),
   ]).then(([g, c, tr, tp]) => {
     if (tok !== RT || !$('#bentoSlot')) return;
-    const pick = (r, n = 0) => r.results.filter(x => x.backdrop)[n];
+    const pick = (r, n = 0) => r.results.filter(x => x.backdrop && !blocked(x))[n];
     $('#bentoSlot').innerHTML = bento([{ it: pick(g), tag: 'Hidden gem of the week' }, { it: pick(c, rand(3)), tag: "Critics' cult classic" }, { it: pick(tr), tag: 'Trending today' }, { it: pick(tp, rand(5)), tag: 'All-time favourite' }]);
   });
 }

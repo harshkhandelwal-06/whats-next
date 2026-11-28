@@ -58,9 +58,21 @@ describe('core flows (legacy single-profile seed)', () => {
   }, 10000);
 
   it('Mood: suggestion lands with a reason', async () => {
-    location.hash = '#/mood'; await sleep(300); click('[data-mood="hyped"]'); await sleep(50); click('#suggest'); await sleep(3600);
-    expect(document.querySelector('.rp.win')).toBeTruthy(); expect(document.querySelector('#rw').textContent).toContain('Hyped');
+    location.hash = '#/mood'; await sleep(300); click('[data-mood="hyped"]'); await sleep(50); click('#suggest'); await sleep(900);
+    expect(document.querySelector('.mr')).toBeTruthy(); expect(document.querySelector('.mr-why').textContent).toContain('Hyped');
+    expect(document.querySelector('.mr-title').getAttribute('aria-label')).toBeTruthy(); await sleep(300); expect(document.querySelectorAll('.mr-c').length).toBeGreaterThan(3);   // a whole hand, not just one
+    document.querySelector('.mr-x').click(); await sleep(400); expect(document.querySelector('.mr')).toBeFalsy();
   }, 10000);
+
+  it('Mood: a genre can be chosen for a mood, and a custom mood can be made', async () => {
+    location.hash = '#/mood'; await sleep(300);
+    expect(document.querySelectorAll('[data-mood]').length).toBeGreaterThan(45);
+    click('[data-x="cozy"]'); await sleep(20); expect(document.querySelector('.mgen')).toBeTruthy(); click('[data-gx="Comedy"]'); await sleep(20);
+    expect(document.querySelector('[data-mood="cozy"] span').textContent).toBe('Comedy');
+    click('[data-new="Feel"]'); await sleep(20); document.querySelector('#nmName').value = 'Sunday slow'; click('[data-nm="Drama"]'); await sleep(20);
+    document.querySelector('#nmName').value = 'Sunday slow'; click('#nmSave'); await sleep(50);
+    expect([...document.querySelectorAll('[data-mood] b')].some(b => b.textContent === 'Sunday slow')).toBe(true);
+  });
 
   it('Taste DNA with Gemini profile', async () => {
     for (const id of [21, 22, 23]) { location.hash = '#/t/movie/' + id; await sleep(300); click('[data-act="watched"]'); await sleep(30); click('[data-rate="10"]'); }

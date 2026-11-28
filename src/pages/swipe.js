@@ -5,22 +5,28 @@ import { likedOf, prefLang, recommend } from '../core/rec.js';
 import { GN, ITEMS, S, save } from '../core/state.js';
 import { $, esc, key, rand, shuffle } from '../core/utils.js';
 import { RT } from '../router.js';
+import { blocked } from '../core/taste.js';
 
-export let DECK = [], HIST = [], deckBusy = false, deckType = null;
+export let DECK = [], HIST = [], deckType = null;
 const SW = { right: 0, up: 0, left: 0, down: 0 };
 
-export async function fillDeck() {
-  if (deckBusy) return; deckBusy = true;
+let filling = null;
+/** Tops up the deck for the current type. A fill that started for the other type (Movies vs TV) never blocks or pollutes this one. */
+export function fillDeck() {
   const t = S.cfg.type;
-  try {
+  if (filling && filling.t === t) return filling.p;
+  const p = (async () => {
     let inc = [];
-    if (likedOf(t).length) inc = await recommend(t, []);
-    const p = await api(`/discover/${t}`, { sort_by: 'popularity.desc', 'vote_count.gte': 150, page: 1 + rand(15), with_original_language: prefLang() }).catch(() => ({ results: [] }));
-    inc = inc.concat(shuffle(p.results.map(x => norm(x, t))));
+    if (likedOf(t).length) inc = await recommend(t, []).catch(() => []);
+    const lang = prefLang(), pull = async l => (await api(`/discover/${t}`, { sort_by: 'popularity.desc', 'vote_count.gte': 150, page: 1 + rand(15), with_original_language: l }).catch(() => ({ results: [] }))).results.map(x => norm(x, t));
+    let more = await pull(lang); if (more.length < 8 && lang) more = more.concat(await pull(''));
+    if (!more.length) more = await pull('');
+    inc = inc.concat(shuffle(more));
+    if (S.cfg.type !== t || deckType !== t) return;   // the person switched Movies/TV while this was loading
     const have = new Set(DECK.map(key));
-    inc = inc.filter(x => !S.lib[key(x)] && !have.has(key(x)) && x.poster);
-    DECK.push(...inc);
-  } finally { deckBusy = false; }
+    DECK.push(...inc.filter(x => !S.lib[key(x)] && !have.has(key(x)) && x.poster && !blocked(x) && (have.add(key(x)), true)));
+  })().finally(() => { if (filling?.p === p) filling = null; });
+  filling = { t, p }; return p;
 }
 
 const IC = {

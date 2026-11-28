@@ -1,4 +1,5 @@
 import { KIDS_PROMPT } from './safety.js';
+import { noteBrief } from './taste.js';
 import { L, api, norm } from './api.js';
 import { topGenres } from './rec.js';
 import { GN, ITEMS, S } from './state.js';
@@ -72,7 +73,7 @@ export function tasteBrief(type) {
   const L = Object.values(S.lib), by = (f, n) => L.filter(f).sort((a, b) => b.ts - a.ts).slice(0, n).map(e => `${e.title} (${e.year})`);
   const loved = by(e => e.status === 'watched' && (e.my || 0) >= 8, 14), disliked = by(e => (e.status === 'watched' && e.my && e.my <= 4) || e.status === 'hidden', 10);
   const g = topGenres(type, 4).map(id => GN[id]).filter(Boolean);
-  return `Loved or liked: ${loved.join('; ') || 'unknown'}\nDisliked: ${disliked.join('; ') || 'none'}\nFavourite genres: ${g.join(', ') || 'unknown'}\nPreferred languages: ${S.cfg.langs.join(', ') || 'any'}`;
+  return `Loved or liked: ${loved.join('; ') || 'unknown'}\nDisliked: ${disliked.join('; ') || 'none'}\nFavourite genres: ${g.join(', ') || 'unknown'}\nPreferred languages: ${S.cfg.langs.join(', ') || 'any'}${noteBrief(type)}`;
 }
 
 export const seenList = () => Object.values(S.lib).filter(e => e.status === 'watched' || e.status === 'hidden').slice(0, 200).map(e => e.title).join('; ');

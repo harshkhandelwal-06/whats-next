@@ -15,7 +15,9 @@ export function mergeData(t, r, { keys = false } = {}) {
   t.meta = { ...(r.meta || {}), ...t.meta };
   const rc = r.cfg || {};
   if (Array.isArray(rc.friends)) { const have = new Set((t.cfg.friends || []).map(f => f.id)); t.cfg.friends = [...(t.cfg.friends || []), ...rc.friends.filter(f => f && f.id && !have.has(f.id))]; }
+  if (Array.isArray(rc.myMoods)) { const have = new Set((t.cfg.myMoods || []).map(x => x.id)); t.cfg.myMoods = [...(t.cfg.myMoods || []), ...rc.myMoods.filter(x => x && x.id && !have.has(x.id))]; }
   if (Array.isArray(rc.lists)) { const have = new Set((t.cfg.lists || []).map(l => l.id)); t.cfg.lists = [...(t.cfg.lists || DEF.cfg.lists), ...rc.lists.filter(l => l && l.id && !have.has(l.id))]; }
+  for (const ty of ['movie', 'tv']) { const rn = rc.notes || {}, tn = t.cfg.notes = t.cfg.notes || { movie: '', tv: '', movieTs: 0, tvTs: 0 }; if ((rn[ty + 'Ts'] || 0) > (tn[ty + 'Ts'] || 0)) { tn[ty] = rn[ty] || ''; tn[ty + 'Ts'] = rn[ty + 'Ts']; } }
   for (const k of PREF_KEYS) if (rc[k] !== undefined && JSON.stringify(t.cfg[k]) === JSON.stringify(DEF.cfg[k])) t.cfg[k] = rc[k];
   if (keys) for (const k of ['key', 'geminiKey', 'omdbKey']) if (!t.cfg[k] && rc[k]) t.cfg[k] = rc[k];
   return before !== JSON.stringify([t.lib, t.del, t.cfg.key, t.cfg.geminiKey]);

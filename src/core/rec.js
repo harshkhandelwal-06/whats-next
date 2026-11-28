@@ -2,6 +2,7 @@ import { api, norm } from './api.js';
 import { GN, ITEMS, S, save } from './state.js';
 import { key, rand, shuffle } from './utils.js';
 import { isSafeFor } from './safety.js';
+import { blocked, lean } from './taste.js';
 
 // Only titles you have actually watched and rated count strongly. Saving something is a weak hint, not a like.
 export const Wt = e => e.status === 'watched' ? (e.my ? (e.my - 5) / 4 : 0) : e.status === 'watching' ? 0.25 : e.status === 'watchlist' ? 0.12 : e.status === 'hidden' ? -0.7 : 0;
@@ -39,11 +40,11 @@ export async function recommend(type, exclude = ['watched', 'hidden']) {
   const bad = new Set(ng.flat().map(x => x.id)), m = new Map();
   for (const o of [...pos.flat(), ...gen.flat()]) {
     const it = norm(o.x, type), k = key(it);
-    if (!isSafeFor(S.cfg.kids, it)) continue;
+    if (!isSafeFor(S.cfg.kids, it) || blocked(it)) continue;
     if (exclude.includes(S.lib[k]?.status)) continue;
     let e = m.get(k);
     if (!e) {
-      e = { it, sc: Math.random() * 0.6 + it.rating / 10, why: [] };
+      e = { it, sc: Math.random() * 0.6 + it.rating / 10 + lean(it), why: [] };
       for (const gid of it.genres) e.sc += (aff[gid] || 0) * 0.15;
       if (S.cfg.langs.includes(it.lang)) e.sc += 0.3;
       if (bad.has(it.id)) e.sc -= 1.2;

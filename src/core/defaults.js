@@ -5,7 +5,7 @@ export const DEFAULT_LIST = { id: 'next', name: 'Next to watch' };
 export const DEF = {
   cfg: {
     key: '', geminiKey: '', geminiModel: '', omdbKey: '', gSync: false, gSyncKeys: true, gUser: null,
-    shown: [], region: 'IN', type: 'movie', langs: [], providers: [], hideSeen: true, kids: false, lists: [{ id: 'next', name: 'Next to watch' }], friends: [], myShare: null,
+    shown: [], myMoods: [], notes: { movie: '', tv: '', movieTs: 0, tvTs: 0 }, region: 'IN', type: 'movie', langs: [], providers: [], hideSeen: true, kids: false, lists: [{ id: 'next', name: 'Next to watch' }], friends: [], myShare: null,
     f: { genres: [], lang: '', sort: '', era: '', min: '', myOnly: false },
   },
   lib: {},
