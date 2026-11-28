@@ -81,7 +81,7 @@ export async function moodPool(type) {
   const aff = taste(type), shown = recent(), seen = new Set(), pool = [];
   for (const x of raw) {
     const it = norm(x, type), k = key(it); if (seen.has(k) || !it.poster || ['watched', 'hidden'].includes(S.lib[k]?.status) || blocked(it) || !isSafeFor(S.cfg.kids, it)) continue; seen.add(k);
-    let sc = Math.random() * 1.2 + lean(it) + it.rating / 5 + it.genres.filter(g => ids.includes(g)).length * .6; for (const g of it.genres) sc += (aff[g] || 0) * .12; if (shown.has(k)) sc -= 2;
+    let sc = Math.random() * 1.2 + lean(it) + it.rating / 5 + it.genres.filter(g => ids.includes(g)).length * 1.1; for (const g of it.genres) sc += (aff[g] || 0) * .12; if (shown.has(k)) sc -= 2;
     pool.push({ it, sc });
   }
   return { pool: pool.sort((a, b) => b.sc - a.sc).map(p => p.it), defs };
